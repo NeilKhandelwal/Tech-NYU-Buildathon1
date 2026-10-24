@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Heat Check API (app/hc.py). Unlike ./Dockerfile there is no migrate/seed entrypoint: the
+# CityLine API (app/hc.py). Unlike ./Dockerfile there is no migrate/seed entrypoint: the
 # schema lives in Supabase (supabase/schema.sql) and this service never alters it.
 FROM python:3.13-slim
 

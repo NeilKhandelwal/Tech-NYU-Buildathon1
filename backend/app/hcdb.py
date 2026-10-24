@@ -1,4 +1,4 @@
-"""Heat Check data access: Romir's `cases` and `events` tables (CONTRACT.md on
+"""CityLine data access: Romir's `cases` and `events` tables (CONTRACT.md on
 docs/final-context; schema in supabase/schema.sql).
 
 Separate from app/db.py on purpose: that module's Alembic migrations own the old 311 schema,
@@ -94,7 +94,7 @@ def engine() -> Engine:
         # the exempt option tells tests/conftest.py's city-scope guard (written for the old 311
         # schema) that this is Romir's `cases`, which has no city_id; it changes no query
         _engine = create_engine(database_url(), pool_pre_ping=True, execution_options={
-            "city_scope_exempt": "Heat Check schema has no city_id"})
+            "city_scope_exempt": "CityLine schema has no city_id"})
     return _engine
 
 

@@ -1,4 +1,4 @@
-"""Heat Check API (app/hc.py): the two human checks, the heat verdict, and the data the
+"""CityLine API (app/hc.py): the two human checks, the heat verdict, and the data the
 dashboard and post-call webhook depend on. SQLite stands in for Supabase."""
 from datetime import datetime, timezone
 

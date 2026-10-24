@@ -1,4 +1,4 @@
-"""LLM work for Heat Check (CONTRACT.md "Internal helpers"): translation for SMS and
+"""LLM work for CityLine (CONTRACT.md "Internal helpers"): translation for SMS and
 transcripts, and the post-call analysis the caseworker reads.
 
 Grok first (XAI_API_KEY, OpenAI-compatible chat completions), then Claude (ANTHROPIC_API_KEY,
