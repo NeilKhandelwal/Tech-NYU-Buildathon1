@@ -1,5 +1,5 @@
 # Local dev only. `docker compose up` runs backend + dashboard against Postgres;
-# `docker compose --profile voice up` adds the LiveKit agent worker (needs agent/.env).
+# The voice agent runs in ElevenLabs, not here; the backend reads its ELEVENLABS_* from env.
 # The three-terminal path outside compose needs no database at all: the backend defaults
 # to a SQLite file (see backend/app/db.py).
 services:
@@ -26,6 +26,10 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://cases:cases@postgres:5432/cases
+    # ELEVENLABS_* and VOICE_TOOL_SECRET; required:false so backend + dashboard run without them
+    env_file:
+      - path: backend/.env
+        required: false
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,20 +55,6 @@ services:
       # keep the image's install and build cache; the bind mount would hide them
       - /app/node_modules
       - /app/.next
-
-  agent:
-    profiles: ["voice"]
-    build: ./agent
-    # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET; required:false so a clone
-    # without the file can still `docker compose up` backend + dashboard
-    env_file:
-      - path: agent/.env
-        required: false
-    environment:
-      BACKEND_URL: http://backend:8000
-    depends_on:
-      backend:
-        condition: service_healthy
 
 volumes:
   pg-data:

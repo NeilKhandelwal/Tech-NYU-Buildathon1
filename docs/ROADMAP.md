@@ -91,20 +91,21 @@ dependency, not by ambition: nothing in Phase 4 is reachable without accounts.
 
 ## Phase 4 — Voice for real
 
-Needs accounts (Twilio, LiveKit Cloud, Fly, Vercel); nothing here is buildable on
+Needs accounts (Twilio, ElevenLabs, Fly, Vercel); nothing here is buildable on
 localhost alone.
 
-- [ ] **Twilio SIP → LiveKit ingress** — a real phone number reaches the same agent.
-      *Done when:* a call from a mobile phone creates a case, with no change to
-      `agent/src/agent.py`.
-- [ ] **Deploy** — backend on Fly, dashboard on Vercel, agent via `lk agent deploy`.
+- [ ] **Twilio number → the ElevenLabs agent** (ElevenLabs' native Twilio integration) — a
+      real phone number reaches the same agent. Needs a conversation-initiation webhook that
+      opens the call record and hands back `call_id` as a dynamic variable.
+      *Done when:* a call from a mobile phone creates a case, with no change to the tools.
+- [ ] **Deploy** — backend on Fly, dashboard on Vercel, agent re-provisioned at the deploy URL by `provision.py`.
       *Done when:* the three pieces run from one merge to `main`, and the dashboard is a
       URL somebody else can open.
 - [ ] **Real staff pickup** — a staff token and a join page so a person actually enters
       the room and the agent stands down.
       *Done when:* a `needs_person` call ends with a human on the line, not just an
       amber badge.
-- [ ] **Egress recordings** — call audio stored alongside the transcript.
+- [ ] **Recordings** — call audio (ElevenLabs keeps it per conversation) linked from the transcript.
       *Done when:* a case's call list plays back the audio for any completed call.
 - [ ] **SMS of case ID and lookup code** — texted to the caller at the end of the call.
       *Done when:* a caller who never wrote the code down can still reach their case.
