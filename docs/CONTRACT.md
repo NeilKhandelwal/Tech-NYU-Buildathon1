@@ -362,3 +362,40 @@ Translation (`translate.py`) is optional: `GEMINI_API_KEY` unset means `translat
 `GEMINI_MODEL` picks the model. Live subtitles need ElevenLabs real-time monitoring
 (Enterprise or the `realtime-monitoring` flag); without it the post-call webhook still backfills
 the transcript.
+
+## Heat Check messaging (added 2026-10-24 13:15) — the caseworker and the agent can text
+
+Messages go over Twilio (`app/sms.py`); `TWILIO_CHANNEL=whatsapp` sends them through the
+WhatsApp sandbox because US SMS needs A2P 10DLC registration. Every message is an `events` row:
+`sms_out` (we sent it, logged even when sending fails) or `sms_in` (the resident sent it).
+
+`sms_out.payload`: `{kind, to, status: sent|failed|skipped, sid, error}`. `kind` is
+`confirmation | receipt | caseworker | photo_request`.
+`sms_in.payload`: `{from, media: [{url, content_type}]}`. `url` is
+`/api/events/{event_id}/media/{n}` on this API (Twilio's own media URL needs our auth token,
+so the browser goes through the backend). A photo with no caption is an `sms_in` with empty text.
+
+```
+POST /api/cases/{case_id}/sms                 (dashboard; the caseworker's own message)
+  in:  {text_en}
+  out: the sms_out event
+  does: translates text_en into the case's language, sends it, logs sms_out kind 'caseworker'.
+        422 on empty text. The caseworker typing and clicking Send is the human check.
+
+POST /api/tools/request_photo                 (intake agent, mid-call; X-Tool-Secret)
+  in:  {case_id}
+  out: {ok, result}   result: a sentence for the agent to say
+  does: texts the resident, in their language, to reply with a photo of their thermometer
+        or radiator; logs sms_out kind 'photo_request'. Never fails the call: a send failure
+        is still {ok: true} with a result saying the text may not arrive.
+
+GET  /api/events/{event_id}/media/{n}         (dashboard <img src>)
+  out: the image bytes, fetched from Twilio with the account's auth. 404 if no such media.
+
+POST /api/webhooks/twilio_sms                 (Twilio; unchanged path)
+  now also: keeps MediaUrl0..N in payload.media, logs a photo with no text, and touches the
+  case's updated_at so a reply moves the case up a queue sorted by updated_at.
+```
+
+"Resident replied" is derived, not stored: a case whose newest message event is an `sms_in`
+is waiting on the caseworker.
