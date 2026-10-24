@@ -3,10 +3,11 @@ import type { Case } from "@/lib/types";
 import { addressLine, isOpen, minutes, parseTime } from "@/lib/format";
 import { IssueBadge, LanguageBadge, Mark } from "./ui";
 
+// [text colour (the beacon rings use currentColor), label]
 const LIVE_STYLE: Record<Live, [string, string]> = {
-  live: ["bg-emerald-400", "Live"],
-  connecting: ["bg-yellow-400", "Connecting"],
-  offline: ["bg-red-500", "Offline"],
+  live: ["text-emerald-400", "Live"],
+  connecting: ["text-yellow-400", "Connecting"],
+  offline: ["text-red-500", "Offline"],
 };
 
 // "Waiting" = cases the city still owes a reply: submitted or in review, not yet actioned
@@ -47,9 +48,7 @@ export function Header({ cases, live, onLine, now, c }: {
       )}
       <div className="ml-auto flex shrink-0 items-center gap-5 text-xs">
         <span className="flex items-center gap-2 font-medium text-zinc-300">
-          <span className={`relative h-2 w-2 rounded-full ${dot}`}>
-            {live === "live" && <span className={`absolute inset-0 animate-ping rounded-full ${dot} opacity-60`} />}
-          </span>
+          <span className={`h-2.5 w-2.5 rounded-full bg-current ${dot} ${live === "live" ? "beacon" : ""}`} />
           {label}
         </span>
         <Stat label="On the line" value={onLine} alert={onLine > 0} />

@@ -83,14 +83,20 @@ export function StatusText({ value }: { value: Status }) {
 }
 
 export function Mark({ size = "h-8 w-8" }: { size?: string }) {
-  // our own simple mark: a thermometer in a rounded square (no city or agency branding)
+  // our own mark: a city skyline standing on a line (no city or agency branding)
   return (
     <svg viewBox="0 0 32 32" className={`${size} shrink-0`} aria-hidden>
       <rect width="32" height="32" rx="7" fill="#facc15" />
-      <rect x="14" y="6" width="4" height="14" rx="2" fill="#09090b" />
-      <circle cx="16" cy="22" r="4.5" fill="#09090b" />
-      <circle cx="16" cy="22" r="2.5" fill="#facc15" />
-      <rect x="15" y="12" width="2" height="9" fill="#facc15" />
+      <rect x="7" y="13" width="5" height="10" rx="1" fill="#09090b" />
+      <rect x="13.5" y="7" width="5" height="16" rx="1" fill="#09090b" />
+      <rect x="20" y="10.5" width="5" height="12.5" rx="1" fill="#09090b" />
+      <rect x="15.5" y="3.5" width="1" height="4" fill="#09090b" />
+      {/* lit windows, so the towers read as buildings and not a bar chart */}
+      <rect x="8.5" y="15" width="2" height="2" fill="#facc15" />
+      <rect x="15" y="10" width="2" height="2" fill="#facc15" />
+      <rect x="15" y="15" width="2" height="2" fill="#facc15" />
+      <rect x="21.5" y="13" width="2" height="2" fill="#facc15" />
+      <rect x="5" y="24" width="22" height="2.5" rx="1.25" fill="#09090b" />
     </svg>
   );
 }
