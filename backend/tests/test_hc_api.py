@@ -173,3 +173,59 @@ def test_case_detail_includes_its_timeline(api):
     detail = api.get(f"/api/cases/{case_id}").json()
     assert detail["case_number"].startswith("HC-") and [e["type"] for e in detail["events"]] == ["intake_call"]
     assert api.get("/api/cases/not-a-uuid").status_code == 404
+
+
+def test_texts_reach_hindi_and_spanish_speakers_without_an_llm():
+    """With no LLM key the SMS would go out in English; the demo languages are pre-written."""
+    hindi = {"language": "hi", "case_number": "HC-123456", "caseworker_action": "schedule_inspection",
+             "resident_response": "confirmed"}
+    assert "HC-123456" in hc.localized(hindi, "confirmation") and "हिंदी" in hc.localized(hindi, "confirmation")
+    receipt = hc.localized(hindi, "receipt")
+    assert "निरीक्षण" in receipt and "पुष्टि की" in receipt
+    spanish = {**hindi, "language": "es"}
+    assert "se programará una inspección" in hc.localized(spanish, "receipt")
+    assert hc.localized({**hindi, "language": "en"}, "confirmation") is None  # sms.py sends the English
+    assert hc.localized({**hindi, "language": "zh"}, "confirmation") is None  # falls back to translation
+
+
+def test_localized_text_is_sent_as_is(monkeypatch):
+    """A pre-written body must reach Twilio untranslated (no LLM round trip on the demo path)."""
+    import asyncio
+    from app import llm, sms
+
+    sent, logged = [], []
+
+    async def fake_twilio(to, body):
+        sent.append(body)
+        return "sent", "SM1", None
+
+    async def no_translate(text, lang):
+        raise AssertionError("must not translate a pre-written body")
+
+    monkeypatch.setattr(sms, "twilio_send", fake_twilio)
+    monkeypatch.setattr(llm, "translate", no_translate)
+    monkeypatch.setattr(hcdb, "add_event", lambda *a, **k: logged.append(k) or {})
+    case = {"id": "x", "language": "hi", "case_number": "HC-1", "resident_phone": "5551234567"}
+    asyncio.run(sms.send_sms(case, "confirmation", "english", body="हिंदी टेक्स्ट"))
+    assert sent == ["हिंदी टेक्स्ट"] and logged[0]["text_en"] == "english"
+
+
+def test_demo_outdoor_override_is_used_and_disclosed(api, monkeypatch):
+    """On a warm demo afternoon the day rule would never fire; the override makes it fire
+    and says so on screen, so a simulated reading is never presented as live."""
+    case_id = new_case(api, indoor_f=61)["case_id"]
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 24, 18, 0, tzinfo=timezone.utc)  # 2pm in NYC
+
+    async def live(at):
+        raise AssertionError("the live lookup must not run while the override is set")
+
+    monkeypatch.setattr(hc, "datetime", Frozen)
+    monkeypatch.setattr(heat, "outdoor_temp_f", live)
+    monkeypatch.setenv("HC_DEMO_OUTDOOR_F", "41")
+    out = api.post("/api/tools/check_violation", json={"case_id": case_id}).json()
+    assert out["is_violation"] is True and out["outdoor_f"] == 41.0
+    assert out["rule_applied"].endswith("(demo: simulated cold day)")

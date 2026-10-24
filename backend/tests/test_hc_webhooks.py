@@ -8,13 +8,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import hc, hcdb
+from app import building, hc, hcdb
 
 
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     monkeypatch.setenv("HC_DATABASE_URL", f"sqlite:///{tmp_path / 'hc.db'}")
-    for k in ("XAI_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_WEBHOOK_SECRET",
+    for k in ("XAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_WEBHOOK_SECRET",
               "ELEVENLABS_CALLBACK_AGENT_ID"):
         monkeypatch.delenv(k, raising=False)
     hcdb.reset_engine()
@@ -106,3 +106,90 @@ def test_inbound_sms_lands_on_the_case(api):
     assert r.status_code == 200 and "<Response>" in r.text
     event = hcdb.list_events(case["id"])[-1]
     assert (event["type"], event["text_original"], event["text_en"]) == ("sms_in", "Thank you", "Thank you")
+
+
+def test_enrich_fills_building_and_priority_before_the_call_ends(api):
+    """The demo moment: the case pops into the console on the resident's yes, mid-call, and
+    must already show the repeat-offender building and its priority."""
+    import asyncio
+    from app import webhooks
+    case = case_with_conversation(days_without_heat=1, indoor_f=64)
+    asyncio.run(webhooks.enrich(case["id"]))
+    got = hcdb.get_case(case["id"])
+    assert got["building"]["repeat_offender"] and got["priority"] == "high"
+    assert got["suggested_action"] == "schedule_inspection"
+    assert got["status"] == "submitted"  # enrich never moves the case; post-call does
+
+
+def test_callback_post_call_event_is_marked_ended(api, monkeypatch):
+    """/callback already logs a callback_call at dial time; the dashboard tells the two apart
+    by stage."""
+    monkeypatch.setenv("ELEVENLABS_CALLBACK_AGENT_ID", "agent-callback")
+    case = case_with_conversation(status="callback_requested")
+    api.post("/api/webhooks/elevenlabs_post_call", json=post_call(agent_id="agent-callback"))
+    [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
+    assert ended["payload"]["stage"] == "ended"
+
+
+def test_submit_reaches_the_console_with_building_and_priority(api, monkeypatch):
+    """End to end through hc.py: the resident's yes alone must leave a complete queue row."""
+    from app import hc
+
+    async def no_geocode(address):
+        return {}
+
+    async def no_sms(case, kind, text_en):
+        pass
+
+    monkeypatch.delenv("HC_TOOL_SECRET", raising=False)
+    monkeypatch.setattr(hc, "geocode", no_geocode)
+    monkeypatch.setattr(hc, "send_sms", no_sms)
+    out = api.post("/api/tools/create_case", json={
+        "resident_name": "Ramesh", "resident_phone": "5551234567", "language": "hi",
+        "address": "2800 Creston Avenue, Bronx", "unit": "4B", "days_without_heat": 3,
+        "indoor_f": 61}).json()
+    hcdb.update_case(out["case_id"], is_violation=True)  # check_violation's job, weather-dependent
+    api.post("/api/tools/submit_case", json={"case_id": out["case_id"], "resident_confirmed": True})
+    got = hcdb.get_case(out["case_id"])
+    assert (got["status"], got["priority"], got["building"]["source"]) == ("submitted", "urgent", "seed")
+
+
+def test_seed_is_idempotent_and_backdated(api, monkeypatch):
+    """Re-running the seed before the demo must not double the queue, and seeds must sort
+    below the live call (older created_at)."""
+    import asyncio
+    from scripts import hc_seed
+
+    async def offline(address, borough=None):
+        return building.not_found(address) if "Creston" not in address else \
+            await real(address, borough)
+
+    real = building.building_lookup
+    monkeypatch.setattr(hc_seed.building, "building_lookup", offline)
+    asyncio.run(hc_seed.main())
+    asyncio.run(hc_seed.main())
+    numbers = [c["case_number"] for c in hcdb.list_cases()]
+    assert sorted(numbers) == sorted(s["case_number"] for s in hc_seed.SEEDS)
+    creston = hcdb.get_case_by_number("HC-104233")
+    assert creston["building"]["repeat_offender"] and creston["created_at"] < hcdb.now().isoformat()
+    assert [e["type"] for e in hcdb.list_events(creston["id"])][-1] == "resident_response"
+
+
+def test_without_an_llm_the_agents_english_transcript_is_used(api):
+    """The user's call: no Grok/Gemini key; ElevenLabs' data collection supplies the English."""
+    case = case_with_conversation(language="hi")
+    body = post_call(analysis={"transcript_summary": "No heat for three days.",
+                               "data_collection_results": {"transcript_en": {"value": "Resident: No heat."}}})
+    api.post("/api/webhooks/elevenlabs_post_call", json=body)
+    got = hcdb.get_case(case["id"])
+    assert (got["transcript_en"], got["summary_en"]) == ("Resident: No heat.", "No heat for three days.")
+
+
+def test_callback_without_an_llm_uses_the_agents_english(api, monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_CALLBACK_AGENT_ID", "agent-callback")
+    case = case_with_conversation(status="callback_requested", language="hi")
+    body = post_call(agent_id="agent-callback",
+                     analysis={"data_collection_results": {"transcript_en": {"value": "Resident: Yes."}}})
+    api.post("/api/webhooks/elevenlabs_post_call", json=body)
+    [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
+    assert ended["text_en"] == "Resident: Yes."

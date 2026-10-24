@@ -248,6 +248,15 @@ def referenced_variables(agent: dict) -> set[str]:
     return {v for v in names if not v.startswith("system__")}
 
 
+TRANSCRIPT_EN = {
+    "type": "string",
+    "description": ("The whole conversation translated into plain English, one line per turn, "
+                    "each starting with 'Agent:' or 'Resident:'. Translate faithfully; keep "
+                    "numbers, temperatures, names and addresses exactly as said. If it was "
+                    "already in English, copy it."),
+}
+
+
 def agent_config(key: str, tool_ids: list[str]) -> dict:
     agent = AGENTS[key]
     config = {
@@ -263,9 +272,16 @@ def agent_config(key: str, tool_ids: list[str]) -> dict:
                                  for lang, greeting in agent["greetings"].items()},
         },
     }
+    config["platform_settings"] = {
+        # the caseworker reads English: without this a Hindi call gets a Hindi summary
+        "summary_language": "en",
+        # ElevenLabs' post-call analysis is the English transcript too, so no second LLM is
+        # needed; webhooks.py reads it from data_collection_results.transcript_en
+        "data_collection": {"transcript_en": TRANSCRIPT_EN},
+    }
     if agent["overrides"]:
-        config["platform_settings"] = {"overrides": {"conversation_config_override": {
-            "agent": {"language": True}}}}
+        config["platform_settings"]["overrides"] = {"conversation_config_override": {
+            "agent": {"language": True}}}
     return config
 
 

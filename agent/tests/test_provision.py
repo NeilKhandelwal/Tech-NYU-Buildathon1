@@ -77,7 +77,7 @@ def test_only_the_callback_agent_allows_a_language_override():
     """/callback sets the resident's language; ElevenLabs refuses the override unless allowed."""
     callback = provision.agent_config("callback", [])
     assert callback["platform_settings"]["overrides"]["conversation_config_override"]["agent"]["language"]
-    assert "platform_settings" not in provision.agent_config("intake", [])
+    assert "overrides" not in provision.agent_config("intake", [])["platform_settings"]
 
 
 def test_intake_detects_the_callers_language():
@@ -94,3 +94,12 @@ def test_every_greeting_keeps_the_callback_variables():
     """A translated greeting that drops {{case_number}} would read a different line per language."""
     for lang, text in provision.CALLBACK_GREETINGS.items():
         assert "{{resident_name}}" in text and "{{case_number}}" in text, lang
+
+
+def test_analysis_comes_back_in_english_for_the_caseworker():
+    """No separate LLM: ElevenLabs' own post-call analysis must give the caseworker English
+    (summary and transcript) even when the call was in Hindi."""
+    for key in provision.AGENTS:
+        settings = provision.agent_config(key, [])["platform_settings"]
+        assert settings["summary_language"] == "en", key
+        assert settings["data_collection"]["transcript_en"]["type"] == "string", key
