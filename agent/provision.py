@@ -10,8 +10,8 @@ patched, and an agent is patched when its env var (below) holds its id.
 
     uv run python provision.py            # prints each new agent's id
 
-The post-call webhook (/api/webhooks/elevenlabs_post_call) is a workspace setting: set it
-once in the ElevenLabs UI, it is not part of an agent.
+The post-call webhook (/api/webhooks/elevenlabs_post_call) is created once as a workspace
+setting in the ElevenLabs UI; each agent then names it (POST_CALL_WEBHOOK_ID below).
 """
 import os
 import re
@@ -34,10 +34,30 @@ COMPLAINT_TYPES = ["heat", "hot_water", "missed_pickup", "pothole", "streetlight
 # hc.py's FOLLOWUPS: how the resident wants the caseworker's update; checked by test_provision
 FOLLOWUPS = ["text", "call"]
 # a non-reasoning model: deepseek-v41-flash (ElevenLabs' default) spoke its reasoning aloud on
-# the first live call. Haiku with reasoning off answers fast and keeps tool use silent.
-LLM = {"llm": "claude-haiku-5-5", "reasoning_effort": "none"}
+# the first live call, and Haiku 5.5 with reasoning off still said "The caller spoke Hindi, so
+# I must switch..." in 3 of 8 simulated calls. Sonnet 5 with reasoning off went 0 of 8, and
+# also always called language_detection (gpt-4.1 skipped it in 4 of 8, leaving the voice and
+# speech recognition on English). First sentence: median 0.79s, one 3s outlier.
+LLM = {"llm": "claude-sonnet-5", "reasoning_effort": "none"}
+# the workspace post-call webhook (hc.py's /api/webhooks/elevenlabs_post_call); each agent
+# must name it too, or ElevenLabs never sends a post-call. Set live by the backend session.
+POST_CALL_WEBHOOK_ID = "36084646808546a8b2db7c60d825f9db"
 # Brian (deep, comforting), at normal speed: Neil's pick after the first call
 VOICE_ID = "nPczCjzI2devNBz1zQrb"
+# Hindi callers say "हाँ"/"अच्छा" while listening; on the 13:57 calls each one cut the agent
+# off mid-question. These words (exact match, any case) no longer interrupt, and the agent
+# waits a little longer before taking a pause as the end of the caller's turn.
+TURN = {
+    "turn_eagerness": "patient",
+    "interruption_ignore_terms": [
+        "हाँ", "हां", "हाँ जी", "जी", "जी हाँ", "अच्छा", "हम्म", "हम", "ठीक है", "हाँ भाई",
+        "haan", "han", "haan ji", "ji", "achha", "acha", "theek hai", "hmm", "hm", "ok", "okay",
+        "yes", "yeah", "uh-huh", "mm-hmm", "right",
+        "sí", "si", "ajá", "claro", "vale", "bueno", "mhm",
+        "嗯", "对", "好", "是", "好的", "对对",
+        "হ্যাঁ", "আচ্ছা", "জি",
+    ],
+}
 
 INTAKE_PROMPT = textwrap.dedent(
     f"""\
@@ -50,46 +70,47 @@ INTAKE_PROMPT = textwrap.dedent(
       language (Hindi, Spanish, Chinese, Bengali, anything), call language_detection for that
       language straight away and from then on speak only that language. Do it silently: no
       remark about languages. Never answer a Hindi speaker in English.
-    - One short sentence per turn, two at most. Ask one question at a time. Sound like a
-      calm person on the phone, not a form.
-    - Only say words meant for the caller. Never describe your reasoning, your rules, your
-      tools or what you are about to do. Never use bracketed tags like [happy].
+    - One short sentence per turn, two at most. The call should take under a minute: ask
+      only the questions below, never confirm what they just told you. Sound like a calm
+      person on the phone, not a form.
+    - Every word you write is spoken aloud on the phone, including any text next to a tool
+      call. So when you call a tool, write nothing else in that message. Never describe
+      your reasoning, your rules, your tools, the language, or what you are about to do (no
+      "Creating the case now"). Never use bracketed tags like [happy].
+    - Quoted phrases below are English examples: say them in the caller's language.
     - Don't repeat back what they just said unless you are reading the case back at the end.
     - You are a man: in Hindi and other languages that mark gender, use masculine forms
       ("कर सकता हूँ", "पूछ रहा हूँ").
 
-    Collect, skipping anything already given:
+    Ask in this order, skipping anything already given:
     1. What the problem is. Pick complaint_type from: {", ".join(COMPLAINT_TYPES)}.
-    2. Their name. Take whatever name they give; never ask for a fuller name.
-    3. The address (and apartment number for a home problem).
-    4. Only for heat or hot_water: how many days it has been out, and the temperature
-       inside. If they don't have a thermometer, ask if it feels very cold, cold or a little
-       cold (very cold = 55, cold = 60, a little cold = 64).
-    5. Whether the number they are calling from ({{{{system__caller_id}}}}) is the best number
-       to call back. If not, take one and read the ten digits back once.
-    6. How they want the caseworker's update: "Would you like the update by text message,
-       or should the caseworker call you?" followup is "text" or "call".
+       heat = the home is cold; hot_water = water runs but isn't hot; water = no water, a
+       leak or a broken main (not a heat problem).
+    2. One question for name and place: "What's your name, and the address with the
+       apartment number?" Take what they give (for a street problem, a street and a cross
+       street or landmark is enough). Ask again only for something missing, once.
+    3. Only for heat or hot_water: "Roughly how many degrees is it inside?" Ask for a
+       number. If they truly can't say, ask once if it's very cold, cold or a little cold
+       (very cold = 55, cold = 60, a little cold = 64).
+    That is all you ask. Never ask how many days, never ask about a phone number (the
+    callback number is the one they are calling from, {{{{system__caller_id}}}}; never say
+    it), and never ask text or call on its own: it goes in the read-back below.
 
     Then:
-    - Call create_case. language is a code like "hi" and language_label its English name
-      like "Hindi"; write the address and a one-sentence English description in English.
-    - Only for heat: call check_violation with the case_id create_case returned. If
-      is_violation is true, say in one sentence that this may break the city heat rules.
-      Never say it is definitely illegal and never give legal advice.
-
-    Wrapping up (the case is not sent until submit_case, so never say it is filed before):
-    - Read it back in one sentence starting "Here's what I have:" (problem, address, and
-      text or call), then ask "Should I send this to the city?" If they seem unsure, ask
-      once more in simpler words. Only if they clearly say yes, call submit_case with
-      resident_confirmed true. If they say no, ask what to change, or thank them and end.
-    - After submit_case, say it's sent and give the case number one character at a time,
-      zeros included: HC-058652 is "H, C, zero, five, eight, six, five, two". Then one
-      sentence on what happens next: they'll get a text with the case number now, and a
-      caseworker will review it and follow up in their language by text or by phone, as
-      they chose.
-    - Ask "Is there anything else I can help you with?" If yes, help with that (a new
-      problem is a new case). If no, say one short goodbye and call end_call in that same
-      turn, with nothing after it.
+    - One short read-back that also asks how to update them: "No heat at 2800 Creston
+      Avenue, apartment 4B. Should I send this to the city, and should we update you by
+      text?" followup is "text", or "call" if they'd rather get a call. Nothing is filed
+      yet, so never say it is filed. Don't call create_case
+      before their yes. If they say no, ask what to change, or thank them and end.
+    - Only if they clearly say yes to sending, call these one after another without
+      speaking in between: create_case (language is a code like "hi", language_label its
+      English name like "Hindi"; address and a one-sentence description in English), then
+      only for heat check_violation with the case_id it returned, then submit_case with
+      resident_confirmed true.
+    - Then say: "Sent. Your case number is on its way by text." If check_violation said
+      is_violation true, add one sentence that this may break the city heat rules (never
+      say it is definitely illegal, no legal advice). Don't read the case number out. Then
+      one short goodbye and call end_call in that same turn.
     If a tool returns an error, do what it says (usually: ask again).
 
     Safety: if anyone is in danger (gas smell, fire, someone sick from the cold, a baby in
@@ -118,8 +139,10 @@ CALLBACK_PROMPT = textwrap.dedent(
     You are calling a New York City resident back from CityLine, on behalf of the city
     caseworker who reviewed their case. Talk like a kind, experienced caseworker about their complaint {{case_number}} at {{address}}.
     Speak only in {{language_label}} (language code {{language}}). Keep each turn to one or two
-    short sentences. Only say words meant for the resident: never describe your reasoning or
-    tools, and never use bracketed tags like [happy].
+    short sentences. Every word you write is spoken aloud on the phone, including any text
+    next to a tool call, so when you call a tool write nothing else in that message. Never
+    describe your reasoning, your tools or what you are doing (no "Ending the call now"), and
+    never use bracketed tags like [happy].
 
     The caseworker approved this message, written in English:
     "{{caseworker_message_en}}"
@@ -192,7 +215,9 @@ TOOLS = {
          "indoor_f": llm("indoor temperature in degrees Fahrenheit (estimated if needed)", "number"),
          "followup": {**llm("how the resident wants the caseworker's update"), "enum": FOLLOWUPS},
          "conversation_id": session("system__conversation_id")},
-        ["complaint_type", "resident_phone", "language", "address"],
+        # followup required so the model can't file before asking text or call; the 14:0x
+        # pothole simulation filed first and asked after
+        ["complaint_type", "resident_phone", "language", "address", "followup"],
     ),
     "check_violation": (
         "Heat complaints only. Check the case against the NYC heat rule using the outdoor temperature right now. "
@@ -307,7 +332,10 @@ def agent_config(key: str, tool_ids: list[str]) -> dict:
                 "prompt": {"prompt": agent["prompt"], "tool_ids": tool_ids,
                            "built_in_tools": agent["built_in"], **LLM},
             },
-            "tts": {"voice_id": VOICE_ID},
+            # expressive mode has ElevenLabs tell the model to add emotion tags; on the 14:34
+            # call Sonnet 5 wrote "[थोड़ा हैरान]" and "[राहत]" into its Hindi replies
+            "tts": {"voice_id": VOICE_ID, "expressive_mode": False},
+            "turn": TURN,
             "language_presets": {lang: {"overrides": {"agent": {"first_message": greeting}}}
                                  for lang, greeting in agent["greetings"].items()},
         },
@@ -318,6 +346,7 @@ def agent_config(key: str, tool_ids: list[str]) -> dict:
         # ElevenLabs' post-call analysis is the English transcript too, so no second LLM is
         # needed; webhooks.py reads it from data_collection_results.transcript_en
         "data_collection": {"transcript_en": TRANSCRIPT_EN},
+        "workspace_overrides": {"webhooks": {"post_call_webhook_id": POST_CALL_WEBHOOK_ID}},
     }
     if agent["overrides"]:
         config["platform_settings"]["overrides"] = {"conversation_config_override": {
