@@ -1,12 +1,12 @@
-# Heat Check Caseworker Console (demo)
+# CityLine Caseworker Console (demo)
 
-The government side of Heat Check: the caseworker queue, case detail, and the
+The government side of CityLine: the caseworker queue, case detail, and the
 "Call back in the resident's language" action. Spec: `DASHBOARD.md` (on `main`).
 
 - **Reads** come straight from Supabase (`cases`, `events`), live over Realtime.
 - **Messages** to residents go over WhatsApp in the demo; the panel shows `sms_out` /
   `sms_in` events whichever channel sent them.
-- **Writes** go to the Heat Check API on Fly: `POST /api/cases/{id}/action`, then
+- **Writes** go to the CityLine API on Fly: `POST /api/cases/{id}/action`, then
   `POST /api/cases/{id}/callback`.
 - No login: it's a demo console for a projector.
 

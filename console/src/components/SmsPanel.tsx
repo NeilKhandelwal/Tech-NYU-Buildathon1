@@ -2,7 +2,7 @@ import type { CaseEvent } from "@/lib/types";
 import { nyClock } from "@/lib/format";
 import { Card } from "./ui";
 
-// The resident's phone, as the resident sees it: Heat Check on the left, their replies on the
+// The resident's phone, as the resident sees it: CityLine on the left, their replies on the
 // right. Every sms_out is logged even when Twilio refuses it, so this is also the fallback.
 // The events say sms_* but the demo sends over the Twilio WhatsApp sandbox
 // (TWILIO_CHANNEL=whatsapp); the event doesn't record which, so the title names both.
@@ -11,7 +11,7 @@ export function SmsPanel({ events, phone, fresh }: { events: CaseEvent[]; phone:
   return (
     <Card title="Messages · WhatsApp / SMS" aside={<span className="font-mono text-xs text-slate-400">…{phone.slice(-4)}</span>}>
       <div className="mx-auto max-w-sm rounded-[1.75rem] border-4 border-slate-800 bg-slate-50 p-3">
-        <div className="mb-2 text-center text-[11px] font-semibold text-slate-500">Heat Check</div>
+        <div className="mb-2 text-center text-[11px] font-semibold text-slate-500">CityLine</div>
         <div className="flex max-h-80 min-h-32 flex-col gap-2 overflow-y-auto">
           {texts.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No messages yet.</p>}
           {texts.map((e) => {

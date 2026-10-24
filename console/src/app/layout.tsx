@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Heat Check Caseworker Console (demo)",
-  description: "Demo caseworker console for Heat Check no-heat complaints.",
+  title: "CityLine Caseworker Console (demo)",
+  description: "Demo caseworker console for CityLine 311 complaints.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
