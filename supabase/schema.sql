@@ -39,6 +39,8 @@ create table events (
   created_at timestamptz default now(),
   type text not null,
     -- intake_call | submitted | sms_out | sms_in | caseworker_action | callback_call | resident_response | note
+    -- live call log (app/live.py): call_started | transcript | call_ended. These carry
+    -- payload.conversation_id and may have a null case_id until the agent files the case.
   actor text,                                   -- resident | intake_agent | callback_agent | caseworker | system
   text_original text,                           -- in resident's language where relevant
   text_en text,

@@ -191,6 +191,32 @@ def add_event(case_id, type: str, actor: str | None, text_original: str | None =
         return _row(conn.execute(select(events).where(events.c.id == values["id"])).one())
 
 
+def update_event(event_id, **fields) -> None:
+    with engine().begin() as conn:
+        conn.execute(update(events).where(events.c.id == _uuid(event_id)).values(**fields))
+
+
+def conversation_events(conversation_id: str, types: tuple[str, ...]) -> list[dict]:
+    """Events of these types whose payload names this ElevenLabs conversation, oldest first.
+    Filtered in Python, like find_case_by_conversation, so SQLite tests run the same query."""
+    with engine().begin() as conn:
+        rows = conn.execute(select(events).where(events.c.type.in_(types))
+                            .order_by(events.c.created_at))
+        return [_row(r) for r in rows if (r.payload or {}).get("conversation_id") == conversation_id]
+
+
+def link_conversation(conversation_id: str, case_id) -> None:
+    """Attach a live call's rows (app/live.py logs them before the agent files the case)."""
+    if not conversation_id:
+        return
+    loose = [e["id"] for e in conversation_events(conversation_id, ("call_started", "transcript", "call_ended"))
+             if e["case_id"] is None]
+    if loose:
+        with engine().begin() as conn:
+            conn.execute(update(events).where(events.c.id.in_([_uuid(i) for i in loose]))
+                         .values(case_id=_uuid(case_id)))
+
+
 def list_events(case_id) -> list[dict]:
     with engine().begin() as conn:
         rows = conn.execute(select(events).where(events.c.case_id == _uuid(case_id))
