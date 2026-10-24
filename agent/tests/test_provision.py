@@ -143,9 +143,9 @@ def test_agents_run_a_model_that_does_not_think_aloud():
     """The first live call ran ElevenLabs' default reasoning model, which spoke its reasoning
     to the caller, and Haiku with reasoning off still narrated in simulations; both agents
     must pin the model that passed, with no reasoning turned on."""
-    for key in provision.AGENTS:
+    for key, llm in (("intake", "claude-sonnet-5"), ("callback", "claude-haiku-5-5")):
         prompt = provision.agent_config(key, [])["conversation_config"]["agent"]["prompt"]
-        assert prompt["llm"] == "claude-sonnet-5" and prompt["reasoning_effort"] == "none", key
+        assert prompt["llm"] == llm and prompt["reasoning_effort"] == "none", key
 
 
 def test_agents_name_the_post_call_webhook():
