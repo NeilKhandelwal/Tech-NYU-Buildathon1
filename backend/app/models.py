@@ -79,6 +79,9 @@ class Call(BaseModel):
     room: str | None
     summary: str | None
     transfer_reason: str | None
+    mission_id: str | None = None  # tenant advocate (0004); null on case calls
+    kind: str | None = None  # intake | outbound | heat_check | report; null on case calls
+    conversation_id: str | None = None  # the ElevenLabs conversation, once known
 
 
 class TranscriptCreate(BaseModel):
@@ -91,6 +94,7 @@ class TranscriptLine(BaseModel):
     call_id: str
     role: Role
     text: str
+    translated: str | None = None  # the line in the other party's language; null when off
     ts: str
 
 
@@ -116,3 +120,200 @@ class CaseEvent(BaseModel):
     source: str  # which system wrote it: "staff" or "voice"
     actor: str | None  # which person, from X-Actor; None on a voice call and on pre-0003 rows
     ts: str
+
+
+# ElevenLabs server tools (CONTRACT "## ElevenLabs voice"). call_id comes from the
+# {{call_id}} dynamic variable the browser sets at session start, never from the LLM.
+class ToolCreateCase(BaseModel):
+    call_id: str
+    name: str
+    phone: str
+
+
+class ToolUpdateCase(BaseModel):
+    call_id: str
+    # str, not IssueType: a wrong value has to come back as a sentence the agent can
+    # correct, and a 422 is something it can only stall on
+    issue_type: str | None = None
+    description: str | None = None
+
+
+class ToolLookupCase(BaseModel):
+    call_id: str
+    code: str
+
+
+class ToolAddNote(BaseModel):
+    call_id: str
+    note: str
+
+
+class ToolTransfer(BaseModel):
+    call_id: str
+    reason: str
+
+
+class ToolResult(BaseModel):
+    result: str  # what the agent reads; failures are sentences too
+
+
+class VoiceSession(BaseModel):
+    call_id: str
+    token: str
+
+
+# ---- tenant advocate (CONTRACT "## Tenant advocate") ----
+
+MissionIssue = Literal["no_heat", "no_hot_water", "repair"]
+MissionStatus = Literal["draft", "ready", "calling", "waiting_on_tenant", "committed", "refused",
+                        "no_answer", "escalated", "closed"]
+CallKind = Literal["intake", "outbound", "heat_check", "report"]
+Outcome = Literal["committed", "refused", "no_answer"]
+EscalationKind = Literal["hpd_complaint", "hp_action"]
+
+
+class MissionFields(BaseModel):
+    """Every field the tenant, staff or the intake agent may set; all optional."""
+    tenant_name: str | None = None
+    tenant_phone: str | None = None
+    tenant_language: str | None = None
+    address: str | None = None
+    unit: str | None = None
+    landlord_name: str | None = None
+    landlord_phone: str | None = None
+    issue: MissionIssue | None = None
+    goal: str | None = None
+    deadline: str | None = None
+    limits: str | None = None
+
+
+class MissionCreate(MissionFields):
+    tenant_name: str
+    tenant_phone: str
+
+
+class MissionUpdate(MissionFields):
+    status: Literal["ready", "closed"] | None = None  # the rest are set by the call flow
+
+
+class Mission(BaseModel):
+    id: str
+    tenant_name: str
+    tenant_phone: str
+    tenant_language: str
+    address: str
+    unit: str
+    landlord_name: str
+    landlord_phone: str
+    issue: MissionIssue | None
+    goal: str
+    deadline: str | None
+    limits: str
+    status: MissionStatus
+    outcome: str | None
+    created_at: str
+    updated_at: str
+
+
+class HeatReadingCreate(BaseModel):
+    indoor_f: float
+    taken_at: str | None = None  # ISO; now when omitted
+    outdoor_f: float | None = None  # looked up when omitted
+    source: Literal["voice", "staff", "seed"] = "staff"
+
+
+class HeatReading(BaseModel):
+    id: int
+    mission_id: str
+    taken_at: str
+    indoor_f: float
+    outdoor_f: float | None
+    source: str
+    required_f: int | None  # derived: what the law required at taken_at
+    violation: bool | None  # derived: null = can't tell
+
+
+class HeatSummary(BaseModel):
+    readings: list[HeatReading] = []
+    violations: int = 0
+    worst: HeatReading | None = None
+
+
+class Commitment(BaseModel):
+    id: int
+    mission_id: str
+    call_id: str | None
+    party: str
+    what: str
+    due: str | None
+    created_at: str
+
+
+class TenantQuestion(BaseModel):
+    id: int
+    mission_id: str
+    call_id: str | None
+    question: str
+    question_translated: str | None
+    answer: str | None
+    status: Literal["pending", "answered", "expired"]
+    created_at: str
+    answered_at: str | None
+
+
+class AnswerCreate(BaseModel):
+    answer: str
+
+
+class EscalationCreate(BaseModel):
+    kind: EscalationKind
+
+
+class Escalation(BaseModel):
+    id: int
+    mission_id: str
+    kind: EscalationKind
+    body: str
+    status: Literal["draft", "approved"]
+    created_at: str
+    approved_at: str | None
+
+
+class Dossier(BaseModel):
+    mission: Mission
+    heat: HeatSummary
+    commitments: list[Commitment] = []
+    questions: list[TenantQuestion] = []
+    call_ids: list[str] = []
+
+
+# server-tool bodies; call_id is the {{call_id}} dynamic variable, never the LLM's
+class ToolMissionUpdate(MissionFields):
+    call_id: str
+    issue: str | None = None  # str, not MissionIssue: a bad value must come back as a sentence
+
+
+class ToolCall(BaseModel):
+    call_id: str
+
+
+class ToolHeatReading(BaseModel):
+    call_id: str
+    indoor_f: float
+
+
+class ToolAskTenant(BaseModel):
+    call_id: str
+    question: str
+
+
+class ToolCommitment(BaseModel):
+    call_id: str
+    what: str
+    due: str | None = None
+
+
+class ToolOutcome(BaseModel):
+    call_id: str
+    outcome: str  # str, not Outcome, for the same reason as ToolMissionUpdate.issue
+    note: str = ""

@@ -136,40 +136,54 @@ def is_violation(date, hour, indoor_f, outdoor_f):
 
 ---
 
-## Repo as it is today (carried over from the previous CLAUDE.md)
-Everything above says **what** we're building and wins on that. This section says **how the code on `main` is actually set up**. Where the two disagree (stack, folders, tables, routes, env names), the code below is what exists. The mismatches are listed in the PR that added this file; update `CONTRACT.md` once the team picks a side.
+## Repo as it is today (updated when `heatcheck` merged into `main`)
+Everything above says **what** we're building and wins on that. This section says **how the code is actually set up**. Where the two disagree, the code below is what exists. The product is now **CityLine** (renamed from Heat Check) and takes any 311 complaint, with heat as the in-depth path.
 
-### Spec vs code conflicts (resolve in CONTRACT.md)
-- **Stack:** the spec says Next.js `app/api` + Supabase. `main` is a FastAPI backend (`backend/`), a separate Next.js dashboard (`dashboard/`) and a LiveKit agent (`agent/`). Branches `tenant-advocate`, `lane/heat` and `elevenlabs-voice` move the agent to ElevenLabs on the same FastAPI backend.
-- **Folders:** `app/api`, `/lib`, `/supabase`, `/seed` and `/pitch` don't exist yet. In the ownership table, read `app/api`/`/lib`/`/supabase` as `backend/`, `app/(dashboard)`/`/components` as `dashboard/src/`, and `/agent` as `agent/` (which already exists).
-- **Tables:** `main` has `cities`, `cases`, `calls`, `call_cases`, `transcript` and `case_events`, not `cases` + `events`.
-- **Secrets:** the spec says one `.env.local`. The code reads per-service `backend/.env`, `agent/.env` and `dashboard/.env.local`. Every `.env*` except `.env.example` is gitignored.
+### Spec vs code (what changed from the plan above)
+- **Stack:** no Next.js `app/api`. The CityLine API is FastAPI (`backend/app/hc.py`), deployed on Fly as `heatcheck-nyu` (the app keeps that name: every webhook URL uses it). It reads and writes Supabase Postgres through `HC_DATABASE_URL`.
+- **Dashboard:** the caseworker console is `console/` (Next.js, Vercel Root Directory = `console`). `dashboard/` is the older 311 desk and isn't the demo console.
+- **Tables:** Supabase `cases` + `events` as in `CONTRACT.md` (`supabase/schema.sql`), plus `cases.complaint_type` / `description`. The old SQLAlchemy schema in `backend/app/db.py` + `migrations/` belongs to the older app and must never run against Supabase.
+- **Reads:** the console reads through the API (`GET /api/cases`, `/api/cases/{id}`, `/api/calls`), polling every 2 s. The publishable key reads nothing while row level security is on in Supabase; Realtime only nudges an immediate refetch once RLS is off.
+- **Messages:** Twilio, over the WhatsApp sandbox (`TWILIO_CHANNEL=whatsapp`), because US SMS needs A2P 10DLC registration. Every message is logged as an `sms_out` / `sms_in` event either way.
 
 ### Layout
-- `backend/`: FastAPI + SQLAlchemy Core (no ORM). `app/main.py` holds every endpoint; `app/db.py` the tables, the engine and the public-id helpers (`C-{1000+id}`, `CALL-{id}`); `migrations/` the Alembic schema; `app/models.py` the Pydantic types; `app/codes.py` + `app/words.py` the three-word lookup codes. Also `scripts/seed.py` and `scripts/reset_demo.py`.
-- `agent/`: LiveKit Agents worker. `src/agent.py` holds the prompt, six function tools and the session wiring. `tests/` has unit tests plus `test_scenarios.py` (evals).
-- `dashboard/`: Next.js App Router. `src/lib/api.ts` is the whole client (types, fetch helpers, `useLiveRefresh`); pages live under `src/app/`.
-- `docs/`: the **old** `CONTRACT.md` (service-request desk), `DECISIONS.md` and `ROADMAP.md`. The root `CONTRACT.md` is the new source of truth.
+- `backend/app/`:
+  - `hc.py`: the CityLine API, including the agent tools, the dashboard routes, `/api/calls`, and the live call poller in its lifespan.
+  - `hcdb.py`: Supabase data access.
+  - `webhooks.py`: the ElevenLabs post-call and Twilio inbound webhooks.
+  - `sms.py`, `llm.py` (Grok, then Claude, then Gemini; never raises), `building.py` (NYC Open Data), `heat.py` (the HPD rule).
+  - `live.py`: the live call log, written as `call_started` / `transcript` / `call_ended` events.
+  - `voicenote.py`.
+- `backend/` also keeps the older apps: `main.py`, `db.py`, and the tenant-advocate modules `missions.py` / `outbound.py` / `monitor.py` (`live.py` reuses `monitor.py`'s socket parser).
+- `agent/provision.py`: the two ElevenLabs agents (intake, callback), with their prompts, greetings and server-tool schemas. A prompt or tool change only reaches calls after it runs.
+- `console/`: the caseworker console. `src/lib/useConsole.ts` holds the data and polling; `src/lib/api.ts` the client.
+- `supabase/schema.sql`: run in the Supabase SQL editor; the API never creates or alters tables there.
+- `docs/`: the older `CONTRACT.md` (service-request desk and tenant advocate), `DECISIONS.md` and `ROADMAP.md`. The root `CONTRACT.md` is the CityLine contract.
 
 ### Run and test
-- Backend: `cd backend && uv sync && uv run uvicorn app.main:app --reload --port 8000`; tests `uv run pytest`. Migrations apply themselves at startup; `uv run alembic upgrade head` does it by hand.
-- Agent: `cd agent && uv sync && uv run python src/agent.py dev` (or `console`); tests `uv run pytest`. Evals: `uv run pytest -m eval` makes live LLM calls and is deselected by default. Never let CI run them unmetered.
-- Dashboard: `cd dashboard && npm install && npm run dev`; checks `npm run build` and `npm run lint`.
-- Compose: `docker-compose.yml` runs Postgres + backend + dashboard. Ports: backend :8000, dashboard :3000.
+- API: `cd backend && uv sync && HC_DATABASE_URL=... uv run uvicorn app.hc:app --port 8000`; tests `uv run pytest` (SQLite stands in for Supabase).
+- Agents: `cd agent && uv sync && uv run python provision.py` (needs `ELEVENLABS_API_KEY` and `PUBLIC_BACKEND_URL`); tests `uv run pytest`.
+- Console: `cd console && cp .env.example .env.local && npm install && npm run dev`; checks `npm run build` and `npm run lint`.
+- Demo reset: `fly ssh console -a heatcheck-nyu -C "python -m scripts.hc_reset --yes"` clears everything but the seeds (`scripts/hc_seed.py`).
 
-### Env vars already in use
-- backend: `DATABASE_URL` (unset = SQLite `backend/cases.db`; `postgresql+psycopg://…` in compose/CI), `CITY_ID`, `CORS_ORIGINS`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
-- agent: `LIVEKIT_*`, `BACKEND_URL`
-- dashboard: `NEXT_PUBLIC_API_URL`, `AUTH_SECRET`, `STAFF_USERS`
-- on `tenant-advocate` (unmerged): `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_CALLER_AGENT_ID`, `ELEVENLABS_TENANT_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID`, `ELEVENLABS_WEBHOOK_SECRET`, `VOICE_TOOL_SECRET`, `GEMINI_API_KEY`, `PUBLIC_BACKEND_URL`
+### Env vars in use
+- API (Fly secrets):
+  - database and access: `HC_DATABASE_URL`, `HC_TOOL_SECRET`
+  - ElevenLabs: `ELEVENLABS_API_KEY`, `ELEVENLABS_INTAKE_AGENT_ID` (or `ELEVENLABS_AGENT_ID`), `ELEVENLABS_CALLBACK_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID`, `ELEVENLABS_WEBHOOK_SECRET`
+  - LLMs: `XAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` (plus the matching `*_MODEL`)
+  - Twilio: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `TWILIO_CHANNEL`, `TWILIO_WHATSAPP_NUMBER`, `WHATSAPP_ALIASES`
+  - demo switches: `HC_DEMO_OUTDOOR_F` (demo only, disclosed in the rule text), `HC_LIVE_CALLS=0` (turns the live call log off)
+- Agents: `ELEVENLABS_API_KEY`, `PUBLIC_BACKEND_URL`, `HC_TOOL_SECRET`, and the two agent ids.
+- Console: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+- Every `.env*` except `.env.example` is gitignored.
 
 ### Conventions already implemented
-- **Writes broadcast.** Every write endpoint ends with `await broadcast(type, id)` on `/ws`. The socket carries no payload, and clients refetch.
-- **Errors the agent can speak.** Agent tools swallow backend failures and return a sentence; they never raise into the session.
+- **Errors the agent can speak.** Every `/api/tools/*` route answers 200 with a reason the agent can act on, never a 4xx the agent would stall on.
+- **Human in the loop on both sides.** `submit_case` needs the resident's yes; `/callback` needs a saved caseworker message.
 - **Stdlib first; short, obvious functions;** comment the *why* of non-obvious lines; match what is there.
 - **Decisions** go in `docs/DECISIONS.md`, one line each: `YYYY-MM-DD | decision | why | what we gave up`.
 
 ### Git
-- The main checkout is the demo tree; never run git operations there. Work in a worktree: `git worktree add ../wt-<name> -b <branch> origin/main`.
-- Branch and PR for everything, with no direct commits to `main`. Path-scoped commits: one concern each, with a message that says why.
+- The main checkout is the demo tree; never run git operations there. Work in a worktree: `git worktree add ../wt-<name> -b <branch> origin/heatcheck`.
+- Branch and PR for everything; feature PRs target `heatcheck`, and `heatcheck` reaches `main` by PR. Path-scoped commits: one concern each, with a message that says why.
 - No AI attribution in git: no co-author trailers, no generated-with footers.

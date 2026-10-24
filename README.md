@@ -1,10 +1,10 @@
-# EffiGov — voice intake → cases → dashboard
+# CityLine (placeholder name) — an ElevenLabs voice agent that files cases while you talk
 
 A voice intake line for local-government service requests, with a live case desk.
 
 ## What it is
 
-A resident calls the City services line. A LiveKit voice agent answers, takes their name and
+A resident calls the City services line. An ElevenLabs voice agent answers, takes their name and
 phone number, opens a service request while they are still explaining it, classifies the issue,
 and reads back a case ID plus a three-word lookup code. A second, unrelated problem on the same
 call opens its own case, with its own ID and code. When the resident calls back and says their
@@ -20,30 +20,41 @@ change with who made it (`staff` vs `voice`). A caller who asks for a person fla
 ## Architecture
 
 ```
- mic ──► agent/  (LiveKit Agents, dev mode)            dashboard/ (Next.js) ◄── Chrome
-            │  httpx: POST /cases, /calls, /calls/{id}/transcript      ▲  fetch + WS /ws
-            ▼                                                          │
-         backend/  (FastAPI + SQLAlchemy Core)    ──── broadcast {type,id} ┘
-         tables: cases · calls · call_cases · transcript · case_events
+ mic ──► ElevenLabs Agents (STT · LLM · TTS · turn-taking)        dashboard/ (Next.js) ◄── Chrome
+   ▲  WebRTC         │ server tools: POST /voice/tools/*                ▲  fetch + WS /ws
+   │                 │ post-call webhook: POST /voice/webhooks/post-call │
+ /call page ─────────┼──► backend/ (FastAPI + SQLAlchemy Core) ── broadcast {type,id} ┘
+ (@elevenlabs/react) │       tables: cases · calls · call_cases · transcript · case_events
+   relays transcript ┘
 ```
 
-Three processes, one HTTP contract between them ([docs/CONTRACT.md](docs/CONTRACT.md)). The agent
-only ever talks to the backend over HTTP, so the dashboard and the agent were built in parallel
-and neither imports the other.
+Two processes we run, one we configure. The voice agent lives in ElevenLabs; its prompt and its
+five tool schemas live in [agent/provision.py](agent/provision.py), which creates or updates the
+agent from code. Everything the agent does to a case is an HTTP call into the backend
+([docs/CONTRACT.md](docs/CONTRACT.md) "## ElevenLabs voice").
 
 **Real-time.** After every write the backend pushes `{"type": "case"|"call"|"transcript", "id": ...}`
 on `WS /ws`. The socket carries no payload; clients refetch what they are showing. Refetch is
 idempotent, so duplicate or out-of-order frames cannot corrupt UI state. There is one socket per
-page, shared by everything on it — the page's own data and the nav's Live/Polling dot read the same
-connection. The 2-second poll is a fallback: it exists only while that socket is down. Every open,
-including a reconnect, refetches once, so an outage costs one catch-up fetch and nothing else.
+page, shared by everything on it. The 2-second poll is a fallback that exists only while that
+socket is down.
 
-**Voice.** LiveKit Inference for STT (AssemblyAI), LLM (`openai/gpt-4.1-mini`, chosen for reliable
-tool calls against a strict `issue_type` enum), and TTS (Fish Audio) — one LiveKit Cloud key, no
-other provider accounts. Six function tools: `create_case`, `update_case`, `lookup_case`,
-`add_note`, `transfer_to_staff` (flags the call `needs_person` and keeps the line open for staff),
-`end_call`. Every tool swallows backend errors and says so to the caller instead of crashing the
-call; if the backend is down at call start, the call still works, just without the dashboard.
+**Voice.** ElevenLabs Agents runs the whole conversation: Scribe speech-to-text, the LLM, ElevenLabs
+TTS, interruption handling and turn-taking. The browser joins over WebRTC with a short-lived
+conversation token that the backend mints (`POST /voice/session`), so the API key never leaves the
+server. The session carries one dynamic variable, `call_id`, and every server tool reads it from
+there, never from the LLM, so the model cannot write to someone else's call.
+
+The five tools (`create_case`, `update_case`, `lookup_case`, `add_note`, `transfer_to_staff`) are
+**server tools**: webhooks into `/voice/tools/*`, authenticated with a shared `X-Voice-Secret`.
+Hang-up is ElevenLabs' built-in `end_call`. A webhook is stateless, so the per-call state the old
+in-process agent held — which case is being worked, whether it is filed, whether its lookup code
+may be read out — is rebuilt from the database on every request. Every tool answers 200 with a
+sentence; a failure is something the agent can say, never a silent 4xx.
+
+The `/call` page relays the SDK's live transcript to the backend line by line, so staff watch the
+call as it happens. When the call ends, ElevenLabs' post-call webhook (HMAC-verified) writes its own
+call summary onto the call, backfills the transcript if nothing was streamed, and closes the call.
 
 ## Data model
 
@@ -57,8 +68,8 @@ set it. `notes` is not a column: it is derived from the case's `note` events, jo
 
 **Calls** (`calls`). One voice session, public id `"CALL-" + id`. A call is not a case: one case
 collects many calls (the report, then the follow-up), and a lookup-only call should not create a
-junk case. A call carries `status` (`active | needs_person | ended`), `room` (the LiveKit room, so
-the browser page can find its own call), `summary` (written by the agent at hang-up), and
+junk case. A call carries `status` (`active | needs_person | ended`), `room` (unused since the move off
+LiveKit, kept so old rows still read), `summary` (ElevenLabs' post-call summary), and
 `transfer_reason`. `case_id` is only a **cursor** — the case the agent is working right now.
 Ending a call stamps `ended_at`; a PATCH that tries to revive an ended call gets a 409.
 
@@ -105,106 +116,73 @@ oracle, and five wrong codes on one `X-Call-Id` returns 429.
 
 ## Run locally
 
-Docker Compose is coming in Phase 1; today it is three terminals.
-
-**Prereqs:** [uv](https://docs.astral.sh/uv/) (installs Python 3.13 itself), Node 20.9+, and a
-LiveKit Cloud project for the `LIVEKIT_*` keys (Settings → Keys). Without the keys, everything
-except the voice call works.
+**Prereqs:** [uv](https://docs.astral.sh/uv/) (installs Python 3.13 itself), Node 20.9+, an
+ElevenLabs account, and a tunnel so ElevenLabs can reach your local backend
+(`brew install cloudflared`). Without ElevenLabs everything except the voice call works.
 
 ```sh
-# 1. backend (http://localhost:8000, SQLite file backend/cases.db — override with DATABASE_URL=<url>)
-cd backend && cp .env.example .env    # LIVEKIT_* (needed only for the browser call's /token)
+# 0. a shared secret for the tool webhooks
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+
+# 1. backend (http://localhost:8000, SQLite file backend/cases.db; override with DATABASE_URL=<url>)
+cd backend && cp .env.example .env    # ELEVENLABS_API_KEY, VOICE_TOOL_SECRET; agent id after step 3
 uv sync && uv run python -m scripts.seed && uv run uvicorn app.main:app --reload --port 8000
-# 2. dashboard (http://localhost:3000 — open it at localhost, not 127.0.0.1, for CORS; backend URL from NEXT_PUBLIC_API_URL, default http://localhost:8000)
+
+# 2. public URL for the backend (prints https://<random>.trycloudflare.com)
+cloudflared tunnel --url http://localhost:8000
+
+# 3. create the ElevenLabs agent and its tools, pointed at that URL
+cd agent && cp .env.example .env      # ELEVENLABS_API_KEY, PUBLIC_BACKEND_URL, VOICE_TOOL_SECRET
+uv sync && uv run python provision.py # prints the agent id: put it in agent/.env and backend/.env,
+                                      # then restart the backend. Re-run after editing the prompt,
+                                      # or whenever the tunnel URL changes.
+
+# 4. dashboard (http://localhost:3000; open it at localhost, not 127.0.0.1, for CORS)
 cd dashboard && npm install && npm run dev
-# 3. voice agent worker — joins every browser call (LiveKit Cloud dispatch)
-cd agent && cp .env.example .env      # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET
-uv sync && uv run python src/agent.py download-files   # once: turn-detector / VAD models
-uv run python src/agent.py dev
 ```
-- Env vars: `NEXT_PUBLIC_API_URL` (dashboard → backend, default `http://localhost:8000`), `CORS_ORIGINS` (backend, comma-separated, default `http://localhost:3000`) — both listed in the matching `.env.example` — and `DATABASE_URL` (backend; unset means the SQLite file, `postgresql+psycopg://…` for Postgres). The old `CASES_DB=<path>` still works as a SQLite-only alias and prints a deprecation line. Migrations run themselves at startup; `uv run alembic upgrade head` applies them by hand.
-- Staff login: set `AUTH_SECRET` (`openssl rand -base64 32`) and `STAFF_USERS="name:hash,..."` in `dashboard/.env.local`, where each hash comes from `cd dashboard && npm run hash-password -- <password>`. **Dev-only shortcut:** leave `STAFF_USERS` unset and dashboard auth is disabled entirely — every route is open, the nav shows nobody, and the server logs one warning at startup — so a fresh clone and `docker compose up` still work with nothing configured. Never deploy with it unset.
+
+**Post-call webhook** (summaries, and the backstop that ends a call): in the ElevenLabs dashboard,
+go to Agents → Settings → Webhooks, add `https://<tunnel>/voice/webhooks/post-call` with the
+**Transcript** event, then copy its HMAC secret into `ELEVENLABS_WEBHOOK_SECRET` in
+`backend/.env`. The call works without it. You just won't get the ElevenLabs summary.
+
+- Env vars: `NEXT_PUBLIC_API_URL` (dashboard → backend, default `http://localhost:8000`), `CORS_ORIGINS` (backend, comma-separated, default `http://localhost:3000`), `DATABASE_URL` (backend; unset means the SQLite file), and the `ELEVENLABS_*` / `VOICE_TOOL_SECRET` set above. All of them are listed in the matching `.env.example`.
+- Staff login: set `AUTH_SECRET` (`openssl rand -base64 32`) and `STAFF_USERS="name:hash,..."` in `dashboard/.env.local`, where each hash comes from `cd dashboard && npm run hash-password -- <password>`. **Dev-only shortcut:** leave `STAFF_USERS` unset and dashboard auth is disabled entirely. Never deploy with it unset.
 
 Then open http://localhost:3000/call and press **Start call** (Chrome asks for the mic once).
-
-Terminal-only alternative for the voice side: `uv run python src/agent.py console` talks through
-your mic with no browser.
 
 Reset to a clean state at any time: `cd backend && uv run python -m scripts.reset_demo` — wipes all
 tables and reseeds the 3 sample cases, printing each case's lookup code.
 
 ### Run with docker
 
-Local dev only (the three-terminal path above is still the primary one). Needs Docker Desktop / Engine with the Compose plugin.
-
 ```sh
 docker compose up --build            # postgres + backend :8000 (migrated and seeded) + dashboard :3000
-docker compose --profile voice up    # ...plus the LiveKit agent worker (needs agent/.env)
 docker compose down                  # stop; add -v to also drop the postgres volume
 ```
 
-Compose runs `postgres:16` on the named volume `pg-data`; the backend waits for it to be healthy, applies the migrations, and seeds the 3 sample cases only when the `cases` table is empty, so restarts leave data alone and `down -v` resets it. Outside compose the backend still defaults to SQLite and needs nothing running. The dashboard runs `next dev` with `dashboard/` bind-mounted, so edits hot-reload. The agent service reads `agent/.env` (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) and talks to the backend over the compose network.
+The voice agent needs no container: it runs in ElevenLabs. Point the tunnel at `localhost:8000`
+as above, and pass the `ELEVENLABS_*` / `VOICE_TOOL_SECRET` values through `backend/.env`.
 
 ### CI
 
-`.github/workflows/ci.yml` runs on every push to `main` and every PR: backend pytest twice — once on SQLite and once against a `postgres:16` service container, the same suite both times — agent pytest (unit tests only -- the `eval` marker stays deselected and no LiveKit keys are needed), and dashboard `npm run lint` + `npm run build`, in parallel.
-
-`.github/workflows/evals.yml` runs the LLM scenario evals (`pytest -m eval`) on a nightly cron and on manual dispatch. It needs three repository secrets -- **`LIVEKIT_URL`**, **`LIVEKIT_API_KEY`**, **`LIVEKIT_API_SECRET`** -- and skips with a notice if they are not set. Set them once, from the `agent/.env` that already runs the evals locally:
-
-```sh
-cd agent && set -a && . ./.env && set +a          # loads the three values into the shell
-gh secret set LIVEKIT_URL --body "$LIVEKIT_URL"
-gh secret set LIVEKIT_API_KEY --body "$LIVEKIT_API_KEY"
-gh secret set LIVEKIT_API_SECRET --body "$LIVEKIT_API_SECRET"
-```
-
-The nightly is metered: the job has `timeout-minutes: 20`, the harness's own spend cap applies (`EVAL_MAX_LLM_CALLS`, `EVAL_SCENARIO_TIMEOUT_S` — see **Evals** below, overridable as repository *variables*), and a scenario that fails *twice in a row* fails the job, because a prompt regression showing up as a red nightly run is the whole point.
-
-*What a nightly colour means.* **Red** = at least one scenario missed twice in a row, on two independent rolls with a fresh session and a fresh database each. That is the regression; read the failure. **Green** = every scenario passed, but not necessarily first time: the run's terminal summary ends with a `retried once` block naming any scenario that missed its first roll, and a scenario that keeps appearing there across nights is drifting even though the job is green. Read the block, not just the colour. `EVAL_RETRIES` (repository variable, empty = 1) is the knob; `0` restores the old one-miss-is-red behaviour.
+`.github/workflows/ci.yml` runs on every push to `main` and every PR: backend pytest on SQLite and
+against `postgres:16` (the same suite both times), agent pytest, and dashboard lint + build.
 
 ## Testing
 
-Two kinds, and only one of them costs money.
+Everything runs offline, with no keys.
 
-**Unit** — offline, no keys, no LLM. `cd backend && uv run pytest` (63 tests over the endpoints, the
-audit log, call/case linking, code lookup, notes-as-events, the `since` cursor, and the migration and
-foreign keys themselves, and the refusal to boot on a pre-migration database; set `DATABASE_URL` to
-run the identical suite against Postgres) and `cd agent && uv run pytest` (21 tests over the
-agent's pure helpers — phone validation, code normalization, the filed/second-case gates, summary
-assembly, and the eval harness's own retry loop against a stand-in attempt). These are what CI
-runs.
-
-**Dashboard** — no test runner; `cd dashboard && npm run lint && npm run build` is the check CI
-runs. The staff-login flow was verified by hand against a dev server: see the commands and output
-in the pull request that added it.
-
-**Evals** — `cd agent && uv run pytest -m eval` runs 21 hand-labelled scenarios through the real
-`Assistant` and the real backend in-process, and checks which tools it called with what, what the
-caller would hear, and what landed in the database. They make live LLM calls and need `LIVEKIT_*`
-in `agent/.env`, so they are deselected by default. Results across six runs are recorded in
-[agent/evals/RESULTS.md](agent/evals/RESULTS.md): **12/15** on the first prompt, **14/15** after
-fixing the two misses it found, **19/19** after adding scenarios for warm transfer, `end_call`, and
-null-until-classified, **20/21** on the first run that included the two multi-case scenarios, and
-**21/21** on the two runs since the prompt fix that closed it. Single runs, not re-rolled.
-
-*The cap.* A run is metered so a looping agent or a hung call cannot spend without a ceiling:
-`EVAL_MAX_LLM_CALLS` is the number of LLM completions the whole pytest session may make (default
-10 × the scenarios collected — a real run spends 5.4 each, 10 at the worst), and
-`EVAL_SCENARIO_TIMEOUT_S` is the wall clock one scenario gets (default 90; a scenario takes ~5 s).
-Over either, the run fails: the completion that would have gone over is never made, every
-remaining scenario fails without calling out, and `pytest` exits non-zero. Locally that means the
-score is still what the run reports — nothing forces 21/21 — while in CI a scenario that misses
-twice is a red job.
-
-*The retry.* This model misses a given scenario about 1 run in 20, so across 21 scenarios most
-nights lost a different one and a red nightly stopped carrying any signal. A failed scenario is
-therefore run again — a fresh `AgentSession`, a fresh database, the whole scenario including its
-seeding and its DB assertions — and only the second failure raises. One miss is flake: reported,
-not counted. Two in a row is the regression. Both attempts are charged to `EVAL_MAX_LLM_CALLS`, so
-a flaky night costs a few completions more (a clean run spends ~116 of 210). `EVAL_RETRIES` sets
-the retries per scenario — default 1, `0` restores the strict single roll. Every retry taken is
-printed in a `retried once` block at the end of the run, naming the scenario and what it missed
-the first time, so drift stays visible in a green log.
+- `cd backend && uv run pytest` covers the endpoints, the audit log, call/case linking, code lookup,
+  notes-as-events, the `since` cursor, migrations, and `tests/test_voice.py`. That file drives the
+  server tools the way a call would: the lookup code is withheld until the case is filed, a filed
+  or looked-up case can't be rewritten, a second case waits for the first, partial phone numbers
+  are refused, wrong codes are rate-limited, and the post-call webhook's signature check, summary
+  write and transcript backfill all hold.
+- `cd agent && uv run pytest` checks the provisioned config against the backend: every tool takes
+  `call_id` from the session and not the LLM, every tool has a matching route and sends the
+  secret, and the `issue_type` enum matches the backend's.
+- `cd dashboard && npm run lint && npm run build`.
 
 ## API
 
@@ -225,13 +203,15 @@ every payload, is in [docs/CONTRACT.md](docs/CONTRACT.md).
 | `POST` | `/calls/{id}/cases` | body `{case_id, how}` (`created` \| `looked_up`); links the case and makes it the current one. 201 new link, 200 already linked, 404 unknown call or case. One `call_linked` event per (case, call) |
 | `POST` | `/calls/{id}/transcript` | `{role: user\|agent, text}` |
 | `GET` | `/stats[?since=&until=]` | containment over a window of `started_at` (both bounds inclusive, 422 if not ISO): `{calls, contained, needs_person, active, containment}`; `containment` is null, not 0, when nothing in the window has been handled |
-| `GET` | `/token?identity=` | LiveKit join token + a fresh room name for the browser call |
+| `POST` | `/voice/session` | opens a call and returns `{call_id, token}`: an ElevenLabs WebRTC conversation token for the browser |
+| `POST` | `/voice/tools/{create_case,update_case,lookup_case,add_note,transfer_to_staff}` | ElevenLabs server tools; `X-Voice-Secret` required; always 200 `{result}` |
+| `POST` | `/voice/webhooks/post-call` | ElevenLabs post-call webhook, HMAC-verified: summary, transcript backfill, ends the call |
 | `GET` | `/health` | `{"ok": true}`; the dashboard uses it to show "Backend unreachable" |
 | `WS` | `/ws` | one `{type, id}` frame after every write; clients refetch |
 
-Agent tools ([`agent/src/agent.py`](agent/src/agent.py)): `create_case(name, phone)` ·
+Agent tools ([`agent/provision.py`](agent/provision.py)): `create_case(name, phone)` ·
 `update_case(issue_type?, description?)` · `lookup_case(code)` · `add_note(note)` ·
-`transfer_to_staff(reason)` · `end_call()`.
+`transfer_to_staff(reason)` · built-in `end_call`.
 
 ## Roadmap
 
@@ -267,14 +247,17 @@ before it is built.
 - `db.connect()` connections are released by CPython refcounting, not closed explicitly. Fine for
   one process.
 - The home page does one `GET /calls/{id}` per active call on every refresh (N+1).
-- A call whose worker dies mid-call stays `active` forever — there is no heartbeat or timeout;
-  `reset_demo` is the only fix.
-- The `/call` page finds its call by the room name it just generated, so a console-mode call only
-  shows up under `/calls`.
+- If the browser tab dies mid-call and the post-call webhook isn't configured, the call stays
+  `active`; `reset_demo` is the only fix.
+- `call_id` is a dynamic variable the browser sets, so a resident with devtools could point their
+  session at another active call id. Tools still need the shared secret, which only ElevenLabs has;
+  binding the token to the call server side is the fix.
+- The tool secret sits in the agent's config in ElevenLabs as a plain header value, not a
+  workspace secret.
+- Phone calls (ElevenLabs + Twilio) aren't wired up yet: a call that doesn't start from `/call`
+  has no `call_id`, so its tools answer with "couldn't reach the case system".
 
 ## Credits
 
-Scaffolding: `agent/` from LiveKit's
-[`agent-starter-python`](https://github.com/livekit-examples/agent-starter-python), `dashboard/`
-from `create-next-app`, `backend/` from a personal FastAPI + uv project template (layout and
+Scaffolding: `dashboard/` from `create-next-app`, `backend/` from a personal FastAPI + uv project template (layout and
 tooling only).

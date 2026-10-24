@@ -1,0 +1,16 @@
+{
+  "2800 CRESTON AVENUE BRONX": {
+    "found": true,
+    "open_violations": 53,
+    "open_class_c": 24,
+    "heat_violations": 3,
+    "heat_complaints_last_season": 1730,
+    "repeat_offender": true,
+    "recent": [
+      {"date": "2026-10-21", "class": "B", "status": "Open", "description": "§ 27-2005 HMC: PROPERLY REPAIR OR REPLACE THE BROKEN OR DEFECTIVE LOWER WINDOW SASH COUNTER BALANCE"},
+      {"date": "2026-10-21", "class": "B", "status": "Open", "description": "§ 27-2005 ADM CODE REPAIR THE BROKEN OR DEFECTIVE PLASTERED SURFACES AND PAINT IN A UNIFORM COLOR"}
+    ],
+    "source_urls": ["https://data.cityofnewyork.us/resource/wvxf-dwi5.json?$where=housenumber='2800'%20AND%20streetname='CRESTON%20AVENUE'", "https://data.cityofnewyork.us/Housing-Development/Housing-Maintenance-Code-Violations/wvxf-dwi5"],
+    "fetched_at": "2026-10-24"
+  }
+}

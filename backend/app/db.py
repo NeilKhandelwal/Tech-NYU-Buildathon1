@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import (Column, ForeignKey, Index, Integer, MetaData, Row, String, Table,
+from sqlalchemy import (Column, Float, ForeignKey, Index, Integer, MetaData, Row, String, Table,
                         create_engine, event, inspect)
 from sqlalchemy.engine import Engine
 
@@ -89,6 +89,10 @@ calls = Table(
     Column("started_at", String, nullable=False),
     Column("ended_at", String),
     Column("updated_at", String, nullable=False),  # what GET /calls?since= compares against
+    # tenant advocate (0004): NULL on case calls
+    Column("mission_id", Integer, ForeignKey("missions.id")),
+    Column("kind", String),  # 'intake' | 'outbound' | 'heat_check' | 'report'
+    Column("conversation_id", String),  # the ElevenLabs conversation, once known
     Index("calls_status", "status"),
     Index("calls_room", "room"),
 )
@@ -110,6 +114,7 @@ transcript = Table(
     Column("call_id", Integer, ForeignKey("calls.id"), nullable=False),
     Column("role", String, nullable=False),
     Column("text", String, nullable=False),
+    Column("translated", String),  # the line in the other party's language (0004); NULL = off
     Column("ts", String, nullable=False),
     Index("transcript_call", "call_id"),
 )
@@ -127,6 +132,81 @@ case_events = Table(
     Column("actor", String),  # NULL = nobody named: a voice call, or a write from before 0003
     Column("ts", String, nullable=False),
     Index("case_events_case", "case_id"),
+)
+
+# ---- tenant advocate (migration 0004; CONTRACT "## Tenant advocate") ----
+
+# one tenant's problem with one landlord: who to call, what to get, what the agent may agree to
+missions = Table(
+    "missions", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("city_id", Integer, ForeignKey("cities.id"), nullable=False, server_default="1"),
+    Column("tenant_name", String, nullable=False),
+    Column("tenant_phone", String, nullable=False),
+    Column("tenant_language", String, nullable=False, server_default="en"),
+    Column("address", String, nullable=False, server_default=""),
+    Column("unit", String, nullable=False, server_default=""),
+    Column("landlord_name", String, nullable=False, server_default=""),
+    Column("landlord_phone", String, nullable=False, server_default=""),
+    Column("issue", String),  # NULL until known
+    Column("goal", String, nullable=False, server_default=""),
+    Column("deadline", String),  # ISO date
+    Column("limits", String, nullable=False, server_default=""),
+    Column("status", String, nullable=False, server_default="draft"),
+    Column("outcome", String),
+    Column("created_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+    Index("missions_status", "status"),
+)
+
+# required_f and violation are not stored: they are the heat rule applied on read
+heat_readings = Table(
+    "heat_readings", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("mission_id", Integer, ForeignKey("missions.id"), nullable=False),
+    Column("taken_at", String, nullable=False),
+    Column("indoor_f", Float, nullable=False),
+    Column("outdoor_f", Float),  # NULL = the weather lookup failed
+    Column("source", String, nullable=False),
+    Index("heat_readings_mission", "mission_id"),
+)
+
+commitments = Table(
+    "commitments", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("mission_id", Integer, ForeignKey("missions.id"), nullable=False),
+    Column("call_id", Integer, ForeignKey("calls.id")),
+    Column("party", String, nullable=False),
+    Column("what", String, nullable=False),
+    Column("due", String),
+    Column("created_at", String, nullable=False),
+    Index("commitments_mission", "mission_id"),
+)
+
+tenant_questions = Table(
+    "tenant_questions", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("mission_id", Integer, ForeignKey("missions.id"), nullable=False),
+    Column("call_id", Integer, ForeignKey("calls.id")),
+    Column("question", String, nullable=False),
+    Column("question_translated", String),
+    Column("answer", String),
+    Column("status", String, nullable=False, server_default="pending"),
+    Column("created_at", String, nullable=False),
+    Column("answered_at", String),
+    Index("tenant_questions_mission", "mission_id"),
+)
+
+escalations = Table(
+    "escalations", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("mission_id", Integer, ForeignKey("missions.id"), nullable=False),
+    Column("kind", String, nullable=False),
+    Column("body", String, nullable=False),
+    Column("status", String, nullable=False, server_default="draft"),
+    Column("created_at", String, nullable=False),
+    Column("approved_at", String),
+    Index("escalations_mission", "mission_id"),
 )
 
 _engine: Engine | None = None
@@ -230,6 +310,14 @@ def call_pk(call_id: str) -> int | None:
     return _parse_pk(call_id, "CALL-", 0)
 
 
+def mission_id(pk: int) -> str:
+    return f"M-{100 + pk}"
+
+
+def mission_pk(mission_id: str) -> int | None:
+    return _parse_pk(mission_id, "M-", 100)  # "M-101" -> 1
+
+
 def row_to_case(row: Row) -> dict:
     d = dict(row._mapping)
     d["id"] = case_id(d.pop("id"))
@@ -242,4 +330,6 @@ def row_to_call(row: Row) -> dict:
     # calls.current_case_id is the JSON's case_id: the cursor, in public form
     pk = d.pop("current_case_id")
     d["case_id"] = case_id(pk) if pk is not None else None
+    if d.get("mission_id") is not None:
+        d["mission_id"] = mission_id(d["mission_id"])
     return d

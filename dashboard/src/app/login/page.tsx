@@ -1,6 +1,7 @@
 import LoginForm from "./LoginForm";
+import { APP_NAME } from "@/lib/brand";
 
-export const metadata = { title: "Sign in · EffiGov" };
+export const metadata = { title: `Sign in · ${APP_NAME}` };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { next } = await searchParams;

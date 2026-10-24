@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import { auth } from "@/auth";
+import { APP_NAME } from "@/lib/brand";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EffiGov · Case Desk",
-  description: "EffiGov case dashboard",
+  title: `${APP_NAME} · Case Desk`,
+  description: `${APP_NAME} case dashboard`,
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

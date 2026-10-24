@@ -69,9 +69,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: agent/uv.lock
       - run: uv sync --frozen
-      # no LIVEKIT_* secrets here on purpose: agent/tests/conftest.py sets dummy values
-      # for the three vars, and pyproject's addopts deselects the `eval` marker, so this
-      # runs the 11 unit tests only. The LLM evals live in evals.yml.
+      # offline: checks provision.py's tool config against the backend's routes and enum
       - run: uv run pytest -q
 
   dashboard:

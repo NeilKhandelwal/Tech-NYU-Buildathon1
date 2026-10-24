@@ -182,3 +182,183 @@ The headline metric: the share of calls the agent handled with nobody from the c
 - Dashboard: a containment tile on the home page with the percentage, `contained / handled`
   underneath, and a Today / 7 days / 30 days / All window selector (default 7 days). It refetches
   through the same `useLiveRefresh` as everything else; no new socket, no second poll.
+
+## ElevenLabs voice (added 2026-10-24) — replaces the LiveKit worker
+The call runs on an ElevenLabs Agents agent (its STT, LLM, TTS and turn-taking). The
+agent's tools are **server tools**: webhooks back into this backend. All per-call state —
+the case being worked, whether it is filed, which code may be read out — lives in the
+database, keyed by the call, because a webhook is stateless.
+
+- `POST /voice/session` body {} -> 201 `{"call_id": "CALL-7", "token": "<webrtc token>"}`.
+  Opens the call record and fetches a conversation token for `ELEVENLABS_AGENT_ID` with
+  `ELEVENLABS_API_KEY` (the key never reaches the browser). 503 if either is unset; the call
+  row is not created then. The browser starts the session with
+  `{conversationToken: token, dynamicVariables: {call_id}}`.
+- Tool webhooks, all `POST`, all need `X-Voice-Secret: $VOICE_TOOL_SECRET` (401 otherwise,
+  503 if the backend has no secret set). Every body carries `call_id`, filled from the
+  `{{call_id}}` dynamic variable, never by the LLM. Every response is 200
+  `{"result": "<a sentence the agent can say or act on>"}` — a failure is a sentence, not a
+  status code, so the agent never goes silent on a 4xx.
+  - `/voice/tools/create_case` {call_id, name, phone}
+  - `/voice/tools/update_case` {call_id, issue_type?, description?}
+  - `/voice/tools/lookup_case` {call_id, code}
+  - `/voice/tools/add_note` {call_id, note}
+  - `/voice/tools/transfer_to_staff` {call_id, reason}
+  - hang-up is ElevenLabs' built-in `end_call` system tool.
+- Rules the tools enforce (ported unchanged from the LiveKit agent):
+  - a case is **filed** once it has an `issue_type` and a non-empty description; a case
+    found by `lookup_case` counts as filed. `update_case` refuses a filed case.
+  - `create_case` refuses while the current case is open but not filed, and refuses a phone
+    number that isn't ten digits.
+  - the lookup code is returned exactly once: by the `update_case` call that files a case
+    this call created. A looked-up case's code is never returned.
+  - five wrong codes on one call -> "Too many attempts." (the existing per-call counter).
+- `POST /voice/webhooks/post-call` — ElevenLabs' post-call webhook. Verified against
+  `ElevenLabs-Signature` with `ELEVENLABS_WEBHOOK_SECRET` (401 on a bad or stale
+  signature). On `post_call_transcription` it finds the call from
+  `conversation_initiation_client_data.dynamic_variables.call_id`, writes
+  `analysis.transcript_summary` as the call summary, backfills the transcript only if no
+  lines were streamed, and marks the call ended. Unknown call or other event type -> 200,
+  ignored (a non-2xx makes ElevenLabs retry).
+- Live transcript: the browser relays each `onMessage` from the SDK to
+  `POST /calls/{id}/transcript` (role `user`|`agent`), and on disconnect PATCHes the call to
+  `ended`. The post-call webhook is the backstop for both.
+- `GET /token` (LiveKit) is removed.
+
+## Tenant advocate (added 2026-10-24) — the agent makes the call for the tenant
+A **mission** is one tenant's problem with one landlord: who to call, what to get, and what the
+agent may agree to. One mission collects many calls: the intake (tenant ↔ intake agent), the
+outbound call (caller agent ↔ landlord), evening heat checks (tenant), and the report-back
+(tenant). Cases, `/voice/tools/{create_case,…}` and everything above stay as they are.
+
+Ownership (one module per lane; `app/main.py` only includes the routers):
+`app/missions.py` = missions, intake tools, dossier, escalations ·
+`app/heat.py` = the heat rule, outdoor temperature, readings, heat-check calls ·
+`app/outbound.py` (+ `app/monitor.py`, `app/translate.py`) = outbound calls, caller tools,
+tenant questions, commitments, live relay, report-back.
+Shared and not owned by a lane: `app/shared.py` (`now`, `digits`, `broadcast`), `app/db.py`
+tables (all in migration 0004), `app/models.py`, `app/elevenlabs.py`.
+
+### Data (migration 0004)
+```json
+Mission: {"id": "M-101",               // "M-" + (100 + row id)
+  "tenant_name": "Maria Lopez", "tenant_phone": "5551234567",   // digits only
+  "tenant_language": "es",             // BCP-47 primary tag the tenant speaks; "en" default
+  "address": "123 Elm St", "unit": "4B",                        // "" until known
+  "landlord_name": "Elm St Management", "landlord_phone": "5559876543",  // "" until known
+  "issue": "no_heat",                  // no_heat | no_hot_water | repair; null until known
+  "goal": "Heat restored by tomorrow",  // "" until known
+  "deadline": "2026-10-26" | null,     // ISO date the tenant needs it by
+  "limits": "May accept a repair visit within 48 hours. Never agree to pay, sign, or share ID numbers.",
+  "status": "draft",                   // see "### Status" below
+  "outcome": null | "Landlord committed to a boiler repair by 2026-10-25 6pm",
+  "created_at": "...Z", "updated_at": "...Z"}
+HeatReading: {"id": 1, "mission_id": "M-101", "taken_at": "...Z", "indoor_f": 58.0,
+  "outdoor_f": 41.0 | null, "source": "voice" | "staff" | "seed",
+  "required_f": 68 | 62 | null,        // DERIVED: what the law required at taken_at; null = none
+  "violation": true | false | null}    // DERIVED: null = can't tell (outdoor unknown by day)
+HeatSummary: {"readings": [HeatReading], "violations": 2, "worst": HeatReading | null}
+Commitment: {"id": 1, "mission_id": "M-101", "call_id": "CALL-7", "party": "landlord",
+  "what": "Send a technician to fix the boiler", "due": "2026-10-25T18:00" | null, "created_at": "...Z"}
+TenantQuestion: {"id": 1, "mission_id": "M-101", "call_id": "CALL-7",
+  "question": "The landlord offers Thursday instead of tomorrow. Accept?",   // English
+  "question_translated": "..." | null,  // in tenant_language; null if translation is off
+  "answer": null | "No, tomorrow or we file", "status": "pending" | "answered" | "expired",
+  "created_at": "...Z", "answered_at": null | "...Z"}
+Escalation: {"id": 1, "mission_id": "M-101", "kind": "hpd_complaint" | "hp_action",
+  "body": "...", "status": "draft" | "approved", "created_at": "...Z", "approved_at": null | "...Z"}
+Dossier: {"mission": Mission, "heat": HeatSummary, "commitments": [Commitment],
+  "questions": [TenantQuestion], "call_ids": ["CALL-6", "CALL-7"]}
+```
+- `calls` gains `mission_id` (null for case calls), `kind` (`intake | outbound | heat_check |
+  report`, null for case calls) and `conversation_id` (the ElevenLabs conversation, set when
+  known). Call JSON gains `mission_id`, `kind`, `conversation_id`.
+- `transcript` gains `translated` (the line in the *other* party's language for subtitles;
+  null when off). TranscriptLine JSON gains `translated`.
+- Every write on a mission broadcasts `{"type": "mission", "id": "M-101"}` (plus the existing
+  `call` / `transcript` frames for call writes).
+
+### Status
+`draft` (intake in progress) → `ready` (tenant confirmed the card) → `calling` (outbound
+call live) ⇄ `waiting_on_tenant` (an `ask_tenant` is pending) → one of `committed` (landlord
+promised something, recorded as a Commitment) · `refused` · `no_answer` (no pickup or
+voicemail) → `escalated` (an escalation was approved) → `closed`. `missions.py` sets
+draft/ready/escalated/closed; `outbound.py` sets the rest. Any status can go to `closed`.
+
+### The heat rule (`app/heat.py`) — NYC Housing Maintenance Code §27-2029
+Heat season is Oct 1 – May 31, inclusive, in America/New_York local time. In season:
+06:00–21:59 the indoor minimum is 68°F **only when outdoor is below 55°F**; 22:00–05:59 it is
+62°F regardless of outdoor. Outside the season nothing is required (`required_f` null,
+`violation` false). By day with outdoor unknown: `required_f` null, `violation` null.
+`violation = indoor_f < required_f`. Outdoor temperature comes from Open-Meteo (free, no key)
+for NYC (40.7128, -74.0060) at the reading's hour; failure means null, never an error.
+Functions other lanes call: `heat.summary(conn, mission_pk) -> HeatSummary` and
+`heat.describe(summary) -> str` (one or two sentences the caller agent can say aloud, e.g.
+"Logged 58°F at 7pm Tuesday with 41°F outside; the legal minimum then was 68°F.").
+
+### Endpoints
+Missions (`missions.py`):
+- `POST /missions` {tenant_name, tenant_phone, …any Mission field except id/status/outcome/
+  timestamps} → 201 Mission (status draft). `GET /missions` newest first. `GET /missions/{id}`
+  → Mission | 404. `PATCH /missions/{id}` any editable field, or `status` in
+  {ready, closed} → Mission. 422 on a bad issue/status/phone (not 10 digits).
+- `GET /missions/{id}/dossier` → Dossier. `missions.build_dossier(conn, mission_pk) -> Dossier`
+  is the function other lanes call.
+- `POST /missions/{id}/escalations` {kind} → 201 Escalation, a **template-filled** draft (no
+  LLM: the facts come from the dossier). `POST /missions/{id}/escalations/{eid}/approve` →
+  Escalation, mission status → escalated. `GET /missions/{id}/escalations`.
+Heat (`heat.py`):
+- `POST /missions/{id}/heat-readings` {indoor_f, taken_at?, outdoor_f?, source?} → 201
+  HeatReading (outdoor looked up when not given). `GET /missions/{id}/heat-readings` →
+  HeatSummary.
+- `POST /missions/{id}/heat-check-call` → 201 Call (kind heat_check) — outbound to the tenant
+  with `ELEVENLABS_TENANT_AGENT_ID`, in `tenant_language`.
+Outbound (`outbound.py`):
+- `POST /missions/{id}/call` → 201 Call (kind outbound). 409 unless status is `ready` (or a
+  terminal status from a previous attempt: committed/refused/no_answer). 503 if ElevenLabs
+  isn't configured (nothing is written), 502 if the dial fails. Status → calling, outcome
+  cleared. Starts the live relay.
+- **Every outbound dial** (this, heat-check, report) inserts its call row first — the agent
+  needs `{{call_id}}` at dial time — broadcasts it only after the dial succeeds, and deletes
+  it on any dial failure.
+- **Dynamic variables sent:** landlord call `call_id, mission_id, tenant_name,
+  landlord_name`; heat-check and report calls (one tenant agent) both send `call_id,
+  mission_id, purpose (heat_check|report), tenant_name, landlord_name, outcome,
+  commitments` — ElevenLabs refuses a conversation missing any variable the prompt names.
+  `agent/tests/test_provision.py` checks the prompts against these sets.
+- `GET /missions/{id}/questions` → [TenantQuestion]. `POST /missions/{id}/questions/{qid}/answer`
+  {answer} → TenantQuestion (answer may be in any language; stored as given, translated to
+  English for the agent when translation is on). 409 if not pending.
+- `GET /missions/{id}/commitments` → [Commitment].
+- `POST /missions/{id}/report-call` → 201 Call (kind report) — outbound to the tenant with
+  `ELEVENLABS_TENANT_AGENT_ID`, in `tenant_language`, with the outcome and commitments as
+  dynamic variables.
+
+### Server tools (same rules as "## ElevenLabs voice": `X-Voice-Secret`, `call_id` from the
+`{{call_id}}` dynamic variable, always 200 `{"result": "<sentence>"}`)
+- Intake agent (`missions.py`): `mission_update` {call_id, any editable Mission field} —
+  creates the mission on the first call and links it (`calls.mission_id`, kind intake), then
+  patches it; `mission_confirm` {call_id} — refuses (as a sentence naming what's missing)
+  until tenant_name, tenant_phone, landlord_phone (10 digits each), issue and goal are set;
+  then status ready and returns the card read back as one sentence.
+- Tenant agent (`heat.py`): `log_heat_reading` {call_id, indoor_f} → says whether it is a
+  violation under the rule.
+- Caller agent (`outbound.py`): `get_dossier` {call_id} → the mission facts, limits and
+  `heat.describe(...)` as speakable text; `ask_tenant` {call_id, question} → waits up to
+  `ASK_TENANT_TIMEOUT_S` (default 90) for the tenant's answer and returns it (in English), or
+  "The tenant hasn't answered yet; say you'll confirm with them and follow up." on timeout
+  (question → expired); status is waiting_on_tenant while it waits; `record_commitment`
+  {call_id, what, due?}; `set_outcome` {call_id, outcome: committed|refused|no_answer, note}
+  — `committed` is refused until a commitment is recorded. `ask_tenant`'s webhook timeout in
+  ElevenLabs must exceed `ASK_TENANT_TIMEOUT_S` (provision.py sets 120).
+
+### ElevenLabs config (env)
+`ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` (intake), `ELEVENLABS_CALLER_AGENT_ID`,
+`ELEVENLABS_TENANT_AGENT_ID`, `ELEVENLABS_LANDLORD_AGENT_ID` (rehearsal landlord, inbound on a
+second number), `ELEVENLABS_PHONE_NUMBER_ID` (the imported Twilio number),
+`VOICE_TOOL_SECRET`, `ELEVENLABS_WEBHOOK_SECRET`. Outbound calls go through
+`elevenlabs.outbound_call(agent_id, to_number, dynamic_variables, language=None) -> conversation_id`.
+Translation (`translate.py`) is optional: `GEMINI_API_KEY` unset means `translated` stays null;
+`GEMINI_MODEL` picks the model. Live subtitles need ElevenLabs real-time monitoring
+(Enterprise or the `realtime-monitoring` flag); without it the post-call webhook still backfills
+the transcript.
