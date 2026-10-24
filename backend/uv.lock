@@ -58,6 +58,7 @@ dependencies = [
     { name = "pytest" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -69,6 +70,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "sqlalchemy", specifier = ">=2.0.43" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
+    { name = "websockets", specifier = ">=15" },
 ]
 
 [[package]]
