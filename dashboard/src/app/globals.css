@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Staff console: light only, so Tailwind utility colors never fight a dark auto-theme. */
+body {
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}

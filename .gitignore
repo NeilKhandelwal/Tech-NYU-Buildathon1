@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+node_modules/
+.next/
+.DS_Store
+agent/console.log
+agent/worker.log
+# written into dashboard/ by the Next 16 dev server, not by us
+dashboard/AGENTS.md
+dashboard/CLAUDE.md

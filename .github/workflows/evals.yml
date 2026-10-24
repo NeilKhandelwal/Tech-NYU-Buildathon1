@@ -1,0 +1,80 @@
+# Agent LLM evals -- the 21 hand-labelled scenarios in agent/tests/test_scenarios.py.
+# These call a live LLM through LiveKit Inference, so they are never part of CI.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   LIVEKIT_URL         wss://<project>.livekit.cloud
+#   LIVEKIT_API_KEY
+#   LIVEKIT_API_SECRET
+# Without them the job exits successfully with a message instead of failing.
+name: Agent evals
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 07:00 UTC nightly
+    - cron: "0 7 * * *"
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  evals:
+    name: scenario evals
+    runs-on: ubuntu-latest
+    # A full run is ~2 minutes. This is the backstop under the harness's own caps: even if
+    # every scenario sat on its 90s timeout the job would run 30+ minutes, and nobody is
+    # watching a 07:00 cron.
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for LiveKit secrets
+        id: secrets
+        run: |
+          if [ -z "${{ secrets.LIVEKIT_URL }}" ] || [ -z "${{ secrets.LIVEKIT_API_KEY }}" ] || [ -z "${{ secrets.LIVEKIT_API_SECRET }}" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping evals: set the LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET repository secrets to run them."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+        if: steps.secrets.outputs.present == 'true'
+        with:
+          enable-cache: true
+          cache-dependency-glob: agent/uv.lock
+
+      - run: uv sync --frozen
+        if: steps.secrets.outputs.present == 'true'
+
+      - name: Run evals
+        if: steps.secrets.outputs.present == 'true'
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          # The spend cap, both halves. Empty means the defaults in agent/tests/conftest.py
+          # (10 completions x the scenarios collected, 90s of wall clock per scenario);
+          # set the repository variables to tighten either without a code change.
+          EVAL_MAX_LLM_CALLS: ${{ vars.EVAL_MAX_LLM_CALLS }}
+          EVAL_SCENARIO_TIMEOUT_S: ${{ vars.EVAL_SCENARIO_TIMEOUT_S }}
+          # Retries per failed scenario. Empty means the default 1: a scenario that misses
+          # once is re-run, and only a second failure is the regression that reddens this
+          # job. Set the variable to 0 for the old behaviour, where one miss fails the run.
+          EVAL_RETRIES: ${{ vars.EVAL_RETRIES }}
+        # No `|| true`: a scenario the agent fails twice in a row is a prompt regression,
+        # and the point of the nightly is that it turns the run red. The score is what the
+        # log says, and the "retried once" block says which scenarios needed a second roll.
+        run: uv run pytest -m eval -q
+
+      - name: Upload eval output
+        if: always() && steps.secrets.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-evals
+          path: agent/evals/
+          if-no-files-found: ignore

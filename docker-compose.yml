@@ -1,0 +1,70 @@
+# Local dev only. `docker compose up` runs backend + dashboard against Postgres;
+# `docker compose --profile voice up` adds the LiveKit agent worker (needs agent/.env).
+# The three-terminal path outside compose needs no database at all: the backend defaults
+# to a SQLite file (see backend/app/db.py).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cases
+      POSTGRES_PASSWORD: cases
+      POSTGRES_DB: cases
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cases"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      # first boot initialises the data directory; without the grace the first probes fail
+      # and the backend can be started against a postgres that is not listening yet
+      start_period: 10s
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://cases:cases@postgres:5432/cases
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # python, not curl -- the slim image has no curl
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  dashboard:
+    build:
+      context: ./dashboard
+      target: dev
+    ports:
+      - "3000:3000"
+    environment:
+      # the browser talks to the published port, not the compose network
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    volumes:
+      - ./dashboard:/app
+      # keep the image's install and build cache; the bind mount would hide them
+      - /app/node_modules
+      - /app/.next
+
+  agent:
+    profiles: ["voice"]
+    build: ./agent
+    # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET; required:false so a clone
+    # without the file can still `docker compose up` backend + dashboard
+    env_file:
+      - path: agent/.env
+        required: false
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pg-data:
