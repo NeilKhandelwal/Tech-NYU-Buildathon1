@@ -6,17 +6,17 @@
   --animate-arrive: arrive 900ms ease-out;
 }
 
-/* new queue rows and events slide in with a brief blue wash */
+/* new queue rows and events slide in with a brief yellow wash */
 @keyframes arrive {
-  0% { transform: translateY(-8px); opacity: 0; background-color: rgb(219 234 254); }
-  40% { transform: translateY(0); opacity: 1; background-color: rgb(219 234 254); }
+  0% { transform: translateY(-8px); opacity: 0; background-color: rgb(254 249 195); }
+  40% { transform: translateY(0); opacity: 1; background-color: rgb(254 249 195); }
   100% { background-color: transparent; }
 }
 
-/* Projector console: light only (DASHBOARD.md "neutral light theme"), so no dark auto-theme */
+/* Projector console: light only, gray/black with a yellow accent, so no dark auto-theme */
 body {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: #f4f4f5;
+  color: #09090b;
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
@@ -29,15 +29,15 @@ body {
   border-radius: 9999px;
   border: 2px solid #fff;
   background: var(--tone);
-  box-shadow: 0 1px 3px rgb(15 23 42 / 0.35);
+  box-shadow: 0 1px 3px rgb(9 9 11 / 0.35);
   cursor: pointer;
   transition: width 200ms ease-out, height 200ms ease-out;
 }
-.pin:focus-visible { outline: 3px solid #1e3a8a; outline-offset: 2px; }
-.pin, .pin-key, .pin--open { --tone: #1e3a8a; }
+.pin:focus-visible { outline: 3px solid #18181b; outline-offset: 2px; }
+.pin, .pin-key, .pin--open { --tone: #18181b; }
 .pin--urgent { --tone: #dc2626; }
-.pin--done { --tone: #94a3b8; }
-.pin--selected { width: 20px; height: 20px; box-shadow: 0 0 0 3px rgb(30 58 138 / 0.25), 0 2px 6px rgb(15 23 42 / 0.4); }
+.pin--done { --tone: #a1a1aa; }
+.pin--selected { width: 20px; height: 20px; box-shadow: 0 0 0 4px rgb(250 204 21 / 0.7), 0 2px 6px rgb(9 9 11 / 0.4); }
 
 .pin::before,
 .pin::after {

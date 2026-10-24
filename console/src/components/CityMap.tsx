@@ -180,19 +180,19 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
       title="City map"
       aside={
         locating > 0 ? (
-          <span className="flex items-center gap-1.5 text-xs font-medium text-blue-900">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-blue-800" />
+          <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-900">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-yellow-400" />
             {locating === 1 ? "1 call" : `${locating} calls`} locating…
           </span>
         ) : (
-          <span className="text-xs tabular-nums text-slate-500">{placed} of {cases.length} placed</span>
+          <span className="text-xs tabular-nums text-zinc-500">{placed} of {cases.length} placed</span>
         )
       }
       className="overflow-hidden"
       flush
     >
-      <div ref={box} className="h-[230px] w-full bg-slate-100" />
-      <ul className="flex gap-4 border-t border-slate-100 px-4 py-2 text-xs text-slate-600">
+      <div ref={box} className="h-[230px] w-full bg-zinc-100" />
+      <ul className="flex gap-4 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-600">
         <li className="flex items-center gap-1.5"><span className="pin-key pin--urgent" />Urgent or violation</li>
         <li className="flex items-center gap-1.5"><span className="pin-key pin--open" />Open</li>
         <li className="flex items-center gap-1.5"><span className="pin-key pin--done" />Resolved</li>

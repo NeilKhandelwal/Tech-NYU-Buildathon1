@@ -4,17 +4,17 @@ import { nyClock } from "@/lib/format";
 import { Card } from "./ui";
 
 const KIND: Record<EventType, { icon: string; label: string; tone: string }> = {
-  intake_call: { icon: "☎", label: "Intake call", tone: "bg-blue-100 text-blue-900" },
-  submitted: { icon: "✓", label: "Resident confirmed and submitted", tone: "bg-blue-100 text-blue-900" },
-  sms_out: { icon: "✉", label: "Message sent", tone: "bg-slate-100 text-slate-700" },
+  intake_call: { icon: "☎", label: "Intake call", tone: "bg-zinc-100 text-zinc-800" },
+  submitted: { icon: "✓", label: "Resident confirmed and submitted", tone: "bg-zinc-100 text-zinc-800" },
+  sms_out: { icon: "✉", label: "Message sent", tone: "bg-zinc-100 text-zinc-700" },
   sms_in: { icon: "✉", label: "Message received", tone: "bg-emerald-100 text-emerald-800" },
-  caseworker_action: { icon: "✎", label: "Caseworker action", tone: "bg-blue-900 text-white" },
-  callback_call: { icon: "☎", label: "Callback call", tone: "bg-blue-100 text-blue-900" },
+  caseworker_action: { icon: "✎", label: "Caseworker action", tone: "bg-yellow-400 text-zinc-950" },
+  callback_call: { icon: "☎", label: "Callback call", tone: "bg-zinc-100 text-zinc-800" },
   resident_response: { icon: "↩", label: "Resident answered", tone: "bg-emerald-100 text-emerald-800" },
-  note: { icon: "•", label: "Note", tone: "bg-slate-100 text-slate-700" },
+  note: { icon: "•", label: "Note", tone: "bg-zinc-100 text-zinc-700" },
   call_started: { icon: "☎", label: "Call started", tone: "bg-red-100 text-red-700" },
-  transcript: { icon: "…", label: "Line", tone: "bg-slate-100 text-slate-700" },
-  call_ended: { icon: "☎", label: "Call ended", tone: "bg-slate-100 text-slate-700" },
+  transcript: { icon: "…", label: "Line", tone: "bg-zinc-100 text-zinc-700" },
+  call_ended: { icon: "☎", label: "Call ended", tone: "bg-zinc-100 text-zinc-700" },
 };
 
 function detail(e: CaseEvent): string | null {
@@ -34,8 +34,8 @@ export function Timeline({ events, fresh }: { events: CaseEvent[]; fresh: Set<st
   // live transcript lines have their own card; one row per line would bury everything else
   const newest = events.filter((e) => e.type !== "transcript").reverse();
   return (
-    <Card title="Timeline" aside={<span className="text-xs text-slate-400">{newest.length} events</span>}>
-      {newest.length === 0 && <p className="text-sm text-slate-400">No events yet.</p>}
+    <Card title="Timeline" aside={<span className="text-xs text-zinc-400">{newest.length} events</span>}>
+      {newest.length === 0 && <p className="text-sm text-zinc-400">No events yet.</p>}
       <ol className="space-y-3">
         {newest.map((e) => {
           const k = KIND[e.type] ?? KIND.note;
@@ -47,13 +47,13 @@ export function Timeline({ events, fresh }: { events: CaseEvent[]; fresh: Set<st
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${k.tone}`}>{k.icon}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2 text-sm">
-                  <span className="font-semibold text-slate-800">{k.label}</span>
-                  {extra && <span className="text-slate-500">· {extra}</span>}
-                  <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-400">{nyClock(e.created_at)}</span>
+                  <span className="font-semibold text-zinc-800">{k.label}</span>
+                  {extra && <span className="text-zinc-500">· {extra}</span>}
+                  <span className="ml-auto shrink-0 text-xs tabular-nums text-zinc-400">{nyClock(e.created_at)}</span>
                 </div>
-                {showText && e.text_en && <p className="text-sm text-slate-700">{e.text_en}</p>}
+                {showText && e.text_en && <p className="text-sm text-zinc-700">{e.text_en}</p>}
                 {showText && e.text_original && e.text_original !== e.text_en && (
-                  <p className="text-sm text-slate-400">{e.text_original}</p>
+                  <p className="text-sm text-zinc-400">{e.text_original}</p>
                 )}
               </div>
             </li>

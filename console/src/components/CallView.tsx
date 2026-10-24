@@ -7,15 +7,15 @@ import { LiveBadge, LiveTranscript } from "./LiveTranscript";
 export function CallView({ call, now }: { call: Call; now: number }) {
   return (
     <>
-      <div className="border-b border-slate-200 bg-white px-6 py-4">
+      <div className="border-b border-zinc-200 bg-white px-6 py-4">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">{AGENT_LABEL[call.agent]}</h2>
+          <h2 className="text-3xl font-bold tracking-tight text-zinc-900">{AGENT_LABEL[call.agent]}</h2>
           <LiveBadge call={call} now={now} />
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-6 text-base text-slate-600">
+        <div className="mt-2 flex flex-wrap gap-x-6 text-base text-zinc-600">
           <span>Caller: {call.caller ? `…${call.caller.slice(-4)}` : "number not shown"}</span>
-          <span className="text-slate-400">Started {nyTime(call.startedAt)}</span>
-          <span className="text-slate-400">
+          <span className="text-zinc-400">Started {nyTime(call.startedAt)}</span>
+          <span className="text-zinc-400">
             {call.live ? "No case yet: the agent is still collecting details" : "Ended without filing a case"}
           </span>
         </div>

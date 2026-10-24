@@ -4,38 +4,31 @@ import { useState } from "react";
 import type { Case } from "@/lib/types";
 import { COMPLAINT_LABEL, RESPONSE_LABEL, complaintOf, isHeat } from "@/lib/types";
 import { addressLine, fineRange, legalMinimum, nyTime } from "@/lib/format";
-import { Card, Flash, IssueBadge, LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
+import { Card, Flash, IssueBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
 
 type Flashing = Set<string>;
 
+// The case's status line. Its number, problem, language and address live in the black Header bar.
 export function CaseHeader({ c, flash }: { c: Case; flash: Flashing }) {
   return (
-    <div className="border-b border-slate-200 bg-white px-6 py-4">
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <h2 className="font-mono text-3xl font-bold tracking-tight text-slate-900">{c.case_number}</h2>
-        <IssueBadge c={c} large />
-        <LanguageBadge label={c.language_label ?? c.language} />
-        <span className="text-2xl font-medium text-slate-800">{addressLine(c)}</span>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2 text-base text-slate-600">
-        <span>
-          Status: <Flash on={flash.has("status")}><StatusText value={c.status} /></Flash>
-        </span>
-        <span className="flex items-center gap-2">
-          Priority: <Flash on={flash.has("priority")}><PriorityBadge value={c.priority} large /></Flash>
-        </span>
-        {isHeat(c) && <Flash on={flash.has("is_violation")}><ViolationBadge value={c.is_violation} large /></Flash>}
-        <span className="text-slate-400">·</span>
-        <span>{c.resident_name ?? "Name not given"}</span>
-        <span className="text-slate-400">Reported {nyTime(c.created_at)}</span>
-        {c.resident_response && (
-          <Flash on={flash.has("resident_response")} className="ml-auto">
-            <span className="rounded bg-emerald-50 px-2 py-1 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
-              Resident: {RESPONSE_LABEL[c.resident_response] ?? c.resident_response}
-            </span>
-          </Flash>
-        )}
-      </div>
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-zinc-200 bg-white px-6 py-2 text-[15px] text-zinc-600">
+      <span>
+        Status: <Flash on={flash.has("status")}><StatusText value={c.status} /></Flash>
+      </span>
+      <span className="flex items-center gap-2">
+        Priority: <Flash on={flash.has("priority")}><PriorityBadge value={c.priority} /></Flash>
+      </span>
+      {isHeat(c) && <Flash on={flash.has("is_violation")}><ViolationBadge value={c.is_violation} /></Flash>}
+      <span className="text-zinc-400">·</span>
+      <span>{c.resident_name ?? "Name not given"}</span>
+      <span className="text-zinc-500">Reported {nyTime(c.created_at)}</span>
+      {c.resident_response && (
+        <Flash on={flash.has("resident_response")} className="ml-auto">
+          <span className="rounded bg-emerald-50 px-2 py-1 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
+            Resident: {RESPONSE_LABEL[c.resident_response] ?? c.resident_response}
+          </span>
+        </Flash>
+      )}
     </div>
   );
 }
@@ -44,8 +37,8 @@ export function SummaryCard({ c, flash }: { c: Case; flash: Flashing }) {
   return (
     <Card title="Summary (English)">
       <Flash on={flash.has("summary_en")} className="block">
-        <p className="text-[15px] leading-relaxed text-slate-800">
-          {c.summary_en ?? <span className="text-slate-400">Summary arrives when the call ends.</span>}
+        <p className="text-[15px] leading-relaxed text-zinc-800">
+          {c.summary_en ?? <span className="text-zinc-400">Summary arrives when the call ends.</span>}
         </p>
       </Flash>
       <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
@@ -66,8 +59,8 @@ export function ReportCard({ c, flash }: { c: Case; flash: Flashing }) {
   return (
     <Card title="Report" aside={<IssueBadge c={c} />}>
       <Flash on={flash.has("description")} className="block">
-        <p className="text-[17px] leading-relaxed text-slate-900">
-          {c.description ?? <span className="text-slate-400">No description yet.</span>}
+        <p className="text-[17px] leading-relaxed text-zinc-900">
+          {c.description ?? <span className="text-zinc-400">No description yet.</span>}
         </p>
       </Flash>
       <dl className="mt-3 space-y-2 text-sm">
@@ -81,8 +74,8 @@ export function ReportCard({ c, flash }: { c: Case; flash: Flashing }) {
 function Fact({ label, value }: { label: string; value: string | number | null }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="font-medium text-slate-800">{value ?? "—"}</dd>
+      <dt className="text-xs text-zinc-500">{label}</dt>
+      <dd className="font-medium text-zinc-800">{value ?? "—"}</dd>
     </div>
   );
 }
@@ -103,11 +96,11 @@ export function ViolationCard({ c, flash }: { c: Case; flash: Flashing }) {
       </div>
       {min !== null && c.indoor_f !== null && <TempBar indoor={c.indoor_f} min={min} />}
       <Flash on={flash.has("rule_applied")} className="mt-3 block">
-        <p className="text-sm text-slate-700">{c.rule_applied ?? "Not checked yet."}</p>
+        <p className="text-sm text-zinc-700">{c.rule_applied ?? "Not checked yet."}</p>
       </Flash>
       {c.is_violation && (
         <p className="mt-2 text-sm">
-          <span className="text-slate-500">Fine exposure </span>
+          <span className="text-zinc-500">Fine exposure </span>
           <span className="font-semibold text-red-700">{fineRange(c)}</span>
         </p>
       )}
@@ -118,9 +111,9 @@ export function ViolationCard({ c, flash }: { c: Case; flash: Flashing }) {
 function Temp({ label, value, hot, alert }: { label: string; value: number | null; hot?: boolean; alert?: boolean }) {
   return (
     <div>
-      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-xs text-zinc-500">{label}</div>
       <Flash on={!!hot}>
-        <span className={`text-3xl font-semibold tabular-nums ${alert ? "text-red-600" : "text-slate-900"}`}>
+        <span className={`text-3xl font-semibold tabular-nums ${alert ? "text-red-600" : "text-zinc-900"}`}>
           {value === null ? "—" : `${Math.round(value)}°F`}
         </span>
       </Flash>
@@ -134,12 +127,12 @@ function TempBar({ indoor, min }: { indoor: number; min: number }) {
   const below = indoor < min;
   return (
     <div className="mt-3">
-      <div className="relative h-3 rounded-full bg-slate-100">
-        <div className={`h-3 rounded-full ${below ? "bg-red-500" : "bg-blue-900"}`} style={{ width: pct(indoor) }} />
-        <div className="absolute -top-1 h-5 w-0.5 bg-slate-900" style={{ left: pct(min) }} />
+      <div className="relative h-3 rounded-full bg-zinc-100">
+        <div className={`h-3 rounded-full ${below ? "bg-red-500" : "bg-zinc-800"}`} style={{ width: pct(indoor) }} />
+        <div className="absolute -top-1 h-5 w-0.5 bg-zinc-900" style={{ left: pct(min) }} />
       </div>
-      <div className="relative mt-1 h-4 text-[11px] text-slate-500">
-        <span className="absolute -translate-x-1/2" style={{ left: pct(min) }}>min {min}°F</span>
+      <div className="relative mt-1 h-4 text-[11px] text-zinc-500">
+        <span className="absolute -tranzinc-x-1/2" style={{ left: pct(min) }}>min {min}°F</span>
       </div>
     </div>
   );
@@ -156,7 +149,7 @@ export function BuildingCard({ c, flash }: { c: Case; flash: Flashing }) {
     >
       <Flash on={flash.has("building")} className="block">
         {!b ? (
-          <p className="text-sm text-slate-400">Looking up NYC Open Data after the call…</p>
+          <p className="text-sm text-zinc-400">Looking up NYC Open Data after the call…</p>
         ) : (
           <>
             <div className="flex gap-8">
@@ -165,10 +158,10 @@ export function BuildingCard({ c, flash }: { c: Case; flash: Flashing }) {
               <Count label="Heat complaints last season" value={b.heat_complaints_last_season} />
             </div>
             {!!b.recent?.length && (
-              <ul className="mt-3 space-y-1 text-xs text-slate-600">
+              <ul className="mt-3 space-y-1 text-xs text-zinc-600">
                 {b.recent.slice(0, 3).map((r, i) => (
                   <li key={i} className="truncate">
-                    <span className="font-mono text-slate-400">{r.date}</span>{" "}
+                    <span className="font-mono text-zinc-400">{r.date}</span>{" "}
                     <span className="font-semibold">Class {r.class}</span> {r.description}
                   </li>
                 ))}
@@ -176,7 +169,7 @@ export function BuildingCard({ c, flash }: { c: Case; flash: Flashing }) {
             )}
             {!!b.source_urls?.length && (
               <p className="mt-2 text-xs">
-                <a href={b.source_urls[0]} target="_blank" rel="noreferrer" className="text-blue-900 underline">
+                <a href={b.source_urls[0]} target="_blank" rel="noreferrer" className="text-zinc-900 underline decoration-yellow-500 decoration-2 underline-offset-2">
                   Source: NYC Open Data
                 </a>
               </p>
@@ -191,8 +184,8 @@ export function BuildingCard({ c, flash }: { c: Case; flash: Flashing }) {
 function Count({ label, value }: { label: string; value?: number }) {
   return (
     <div>
-      <div className="text-2xl font-semibold tabular-nums text-slate-900">{value ?? "—"}</div>
-      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-2xl font-semibold tabular-nums text-zinc-900">{value ?? "—"}</div>
+      <div className="text-xs text-zinc-500">{label}</div>
     </div>
   );
 }
@@ -207,7 +200,7 @@ export function TranscriptCard({ c, flash }: { c: Case; flash: Flashing }) {
           key={t}
           onClick={() => setTab(t)}
           className={`rounded px-2 py-0.5 text-xs font-medium ${
-            tab === t ? "bg-blue-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            tab === t ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
           }`}
         >
           {t === "original" ? `Original (${c.language_label ?? c.language})` : "English"}
@@ -223,7 +216,7 @@ export function TranscriptCard({ c, flash }: { c: Case; flash: Flashing }) {
             {text.split("\n").filter(Boolean).map((line, i) => <Line key={i} line={line} />)}
           </div>
         ) : (
-          <p className="text-sm text-slate-400">The transcript arrives when the call ends.</p>
+          <p className="text-sm text-zinc-400">The transcript arrives when the call ends.</p>
         )}
       </Flash>
     </Card>
@@ -233,11 +226,11 @@ export function TranscriptCard({ c, flash }: { c: Case; flash: Flashing }) {
 // transcript_text() writes "Agent: …" / "Resident: …" lines; the English translation keeps them
 function Line({ line }: { line: string }) {
   const m = line.match(/^(Agent|Resident):\s*(.*)$/);
-  if (!m) return <p className="text-slate-800">{line}</p>;
+  if (!m) return <p className="text-zinc-800">{line}</p>;
   const resident = m[1] === "Resident";
   return (
-    <p className="text-slate-800">
-      <span className={`mr-2 text-xs font-semibold uppercase ${resident ? "text-blue-900" : "text-slate-400"}`}>
+    <p className="text-zinc-800">
+      <span className={`mr-2 text-xs font-semibold uppercase ${resident ? "text-zinc-900" : "text-zinc-400"}`}>
         {resident ? "Resident" : "Agent"}
       </span>
       {m[2]}

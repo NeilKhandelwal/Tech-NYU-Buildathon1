@@ -37,7 +37,7 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
   const byId = new Map(cases.map((c) => [c.id, c]));
 
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-r border-slate-200 bg-white">
+    <aside className="flex w-[360px] shrink-0 flex-col border-r border-zinc-200 bg-white">
       {live.length > 0 && (
         <div className="border-b border-red-100 bg-red-50/60">
           <h2 className="flex items-center gap-2 px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-red-700">
@@ -52,13 +52,13 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
         </div>
       )}
 
-      <div className="flex items-center gap-4 border-b border-slate-100 px-4 pt-3">
+      <div className="flex items-center gap-4 border-b border-zinc-100 px-4 pt-3">
         {(["cases", "calls"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`-mb-px border-b-2 pb-2 text-xs font-semibold uppercase tracking-wider ${
-              tab === t ? "border-blue-900 text-blue-900" : "border-transparent text-slate-400 hover:text-slate-600"
+              tab === t ? "border-yellow-400 text-zinc-900" : "border-transparent text-zinc-400 hover:text-zinc-600"
             }`}
           >
             {t === "cases" ? `Cases · ${shown.length}` : `Calls · ${calls.length}`}
@@ -74,7 +74,7 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
                 key={f}
                 onClick={() => setFilter(f)}
                 className={`rounded px-2 py-1 text-xs font-medium ${
-                  filter === f ? "bg-blue-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  filter === f ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                 }`}
               >
                 {FILTERS[f].label}
@@ -83,7 +83,7 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
             <select
               value={issue}
               onChange={(e) => setIssue(e.target.value as ComplaintType | "all")}
-              className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+              className="mt-1 w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700"
               aria-label="Problem type"
             >
               <option value="all">All problem types</option>
@@ -92,32 +92,32 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
               ))}
             </select>
           </div>
-          <ol className="flex-1 overflow-y-auto border-t border-slate-100">
+          <ol className="flex-1 overflow-y-auto border-t border-zinc-100">
             {shown.map((c) => (
               <li key={c.id}>
                 <button
                   onClick={() => onSelectCase(c.id)}
-                  className={`block w-full border-b border-l-4 border-b-slate-100 px-4 py-3 text-left transition-colors ${
+                  className={`block w-full border-b border-l-4 border-b-zinc-100 px-4 py-3 text-left transition-colors ${
                     selection?.kind === "case" && selection.id === c.id
-                      ? "border-l-blue-900 bg-blue-50/60"
-                      : "border-l-transparent hover:bg-slate-50"
+                      ? "border-l-yellow-400 bg-yellow-50"
+                      : "border-l-transparent hover:bg-zinc-50"
                   } ${fresh.has(c.id) ? "animate-arrive" : ""}`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[15px] font-semibold text-slate-900">{c.case_number}</span>
+                    <span className="font-mono text-[15px] font-semibold text-zinc-900">{c.case_number}</span>
                     {fresh.has(c.id) && (
-                      <span className="rounded bg-blue-900 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">New</span>
+                      <span className="rounded bg-yellow-400 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-950">New</span>
                     )}
                     {live.some((call) => call.caseId === c.id) && (
                       <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" title="On the line now" />
                     )}
-                    <span className="ml-auto text-xs tabular-nums text-slate-400">{ago(c.created_at, now)}</span>
+                    <span className="ml-auto text-xs tabular-nums text-zinc-400">{ago(c.created_at, now)}</span>
                   </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-600">
                     <IssueBadge c={c} />
                     <LanguageBadge label={c.language_label ?? c.language} />
                     <span>{borough(c) ?? "—"}</span>
-                    <span className="text-slate-300">·</span>
+                    <span className="text-zinc-300">·</span>
                     <StatusText value={c.status} />
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5">
@@ -127,7 +127,7 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
                 </button>
               </li>
             ))}
-            {shown.length === 0 && <li className="px-4 py-8 text-center text-sm text-slate-400">No cases here.</li>}
+            {shown.length === 0 && <li className="px-4 py-8 text-center text-sm text-zinc-400">No cases here.</li>}
           </ol>
         </>
       ) : (
@@ -137,7 +137,7 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
               selected={isSelected(selection, call)} onClick={() => onSelectCall(call)} now={now} />
           ))}
           {calls.length === 0 && (
-            <li className="px-4 py-8 text-center text-sm text-slate-400">No calls in the last 3 hours.</li>
+            <li className="px-4 py-8 text-center text-sm text-zinc-400">No calls in the last 3 hours.</li>
           )}
         </ol>
       )}
@@ -162,22 +162,22 @@ function CallRow({ call, c, selected, onClick, now }: {
     <li>
       <button
         onClick={onClick}
-        className={`block w-full border-b border-l-4 border-b-slate-100 px-4 py-2.5 text-left ${
-          selected ? "border-l-blue-900 bg-blue-50/60" : "border-l-transparent hover:bg-slate-50"
+        className={`block w-full border-b border-l-4 border-b-zinc-100 px-4 py-2.5 text-left ${
+          selected ? "border-l-yellow-400 bg-yellow-50" : "border-l-transparent hover:bg-zinc-50"
         }`}
       >
         <div className="flex items-center gap-2 text-sm">
           {call.live && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-red-600" />}
-          <span className="font-semibold text-slate-900">{AGENT_LABEL[call.agent]}</span>
-          <span className="font-mono text-xs text-slate-500">
+          <span className="font-semibold text-zinc-900">{AGENT_LABEL[call.agent]}</span>
+          <span className="font-mono text-xs text-zinc-500">
             {c ? c.case_number : call.caller ? `…${call.caller.slice(-4)}` : "no case yet"}
           </span>
-          <span className="ml-auto text-xs tabular-nums text-slate-400">
+          <span className="ml-auto text-xs tabular-nums text-zinc-400">
             {call.live ? elapsed(call.startedAt, now) : nyClock(call.startedAt)}
           </span>
         </div>
         {last && (
-          <p className="mt-0.5 truncate text-xs text-slate-500">
+          <p className="mt-0.5 truncate text-xs text-zinc-500">
             <span className="font-medium">{last.who === "resident" ? "Resident" : "Agent"}:</span>{" "}
             {last.english ?? last.original}
           </p>

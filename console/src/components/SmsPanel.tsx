@@ -25,11 +25,11 @@ export function SmsPanel({
 }) {
   const texts = events.filter((e) => e.type === "sms_out" || e.type === "sms_in");
   return (
-    <Card title="Messages · WhatsApp / SMS" aside={<span className="font-mono text-xs text-slate-400">…{phone.slice(-4)}</span>}>
-      <div className="mx-auto max-w-sm rounded-[1.75rem] border-4 border-slate-800 bg-slate-50 p-3">
-        <div className="mb-2 text-center text-[11px] font-semibold text-slate-500">CityLine</div>
+    <Card title="Messages · WhatsApp / SMS" aside={<span className="font-mono text-xs text-zinc-400">…{phone.slice(-4)}</span>}>
+      <div className="mx-auto max-w-sm rounded-[1.75rem] border-4 border-zinc-800 bg-zinc-50 p-3">
+        <div className="mb-2 text-center text-[11px] font-semibold text-zinc-500">CityLine</div>
         <div className="flex max-h-80 min-h-32 flex-col gap-2 overflow-y-auto">
-          {texts.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No messages yet.</p>}
+          {texts.length === 0 && <p className="py-6 text-center text-xs text-zinc-400">No messages yet.</p>}
           {texts.map((e) => {
             const mine = e.type === "sms_in"; // "mine" from the resident's side of the phone
             const status = e.payload?.status as string | undefined;
@@ -38,7 +38,7 @@ export function SmsPanel({
               <div key={e.id} className={`flex flex-col ${fresh.has(e.id) ? "animate-arrive" : ""} ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-snug ${
-                    mine ? "rounded-br-sm bg-blue-900 text-white" : "rounded-bl-sm bg-white text-slate-900 ring-1 ring-slate-200"
+                    mine ? "rounded-br-sm bg-zinc-900 text-white" : "rounded-bl-sm bg-white text-zinc-900 ring-1 ring-zinc-200"
                   }`}
                 >
                   {e.payload?.voice_note === true && (
@@ -54,12 +54,12 @@ export function SmsPanel({
                   )}
                   {e.text_original ?? e.text_en}
                   {english && (
-                    <div className={`mt-1 border-t pt-1 text-xs ${mine ? "border-blue-700 text-blue-100" : "border-slate-100 text-slate-500"}`}>
+                    <div className={`mt-1 border-t pt-1 text-xs ${mine ? "border-zinc-700 text-zinc-300" : "border-zinc-100 text-zinc-500"}`}>
                       EN: {english}
                     </div>
                   )}
                 </div>
-                <span className="mt-0.5 px-1 text-[10px] text-slate-400">
+                <span className="mt-0.5 px-1 text-[10px] text-zinc-400">
                   {nyClock(e.created_at)}
                   {!mine && status && status !== "sent" && (
                     <span className="ml-1 font-semibold text-amber-700">· {status === "skipped" ? "not sent (Twilio off)" : "not delivered"}</span>
