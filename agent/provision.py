@@ -163,7 +163,7 @@ TOOLS = {
         "phone. Returns case_id and case_number.",
         {"complaint_type": {**llm("the kind of problem"), "enum": COMPLAINT_TYPES},
          "description": llm("one English sentence describing the problem"),
-         "resident_name": llm("the resident's full name"),
+         "resident_name": llm("the name the resident gave"),
          "resident_phone": llm("best callback number, ten digits"),
          "language": llm('two-letter code of the language you speak with the resident, e.g. "hi"'),
          "language_label": llm('that language\'s English name, e.g. "Hindi"'),
