@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActionPanel } from "@/components/ActionPanel";
 import { CallView } from "@/components/CallView";
+import { CityMap } from "@/components/CityMap";
 import {
   BuildingCard,
   CaseHeader,
@@ -17,6 +18,7 @@ import { Queue, type Selection } from "@/components/Queue";
 import { SmsPanel } from "@/components/SmsPanel";
 import { Timeline } from "@/components/Timeline";
 import { groupCalls, type Call } from "@/lib/calls";
+import { useGeocodes } from "@/lib/geocode";
 import { queueOrder } from "@/lib/format";
 import { isHeat } from "@/lib/types";
 import { useConsole } from "@/lib/useConsole";
@@ -37,6 +39,10 @@ export default function ConsolePage() {
 
   const calls = useMemo(() => groupCalls(callEvents, now), [callEvents, now]);
   const selectedCall = callId ? calls.find((c) => c.conversationId === callId) : undefined;
+  const points = useGeocodes(cases);
+  const onLine = useMemo(() => new Set(calls.filter((x) => x.live && x.caseId).map((x) => x.caseId!)), [calls]);
+  // an intake call has no place until the agent files its case and the address is geocoded
+  const locating = calls.filter((x) => x.live && x.agent === "intake" && !x.caseId).length;
 
   // the projector should never show an empty panel: open the top of the queue
   useEffect(() => {
@@ -108,6 +114,15 @@ export default function ConsolePage() {
                     <Timeline events={events} fresh={fresh} />
                   </div>
                   <div className="space-y-4">
+                    <CityMap
+                      cases={cases}
+                      points={points}
+                      selectedId={c.id}
+                      fresh={fresh}
+                      onLine={onLine}
+                      locating={locating}
+                      onSelect={selectCase}
+                    />
                     {isHeat(c) ? <ViolationCard c={c} flash={f} /> : <ReportCard c={c} flash={f} />}
                     <SmsPanel events={events} phone={c.resident_phone} fresh={fresh} />
                   </div>
