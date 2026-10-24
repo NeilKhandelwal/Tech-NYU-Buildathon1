@@ -1,4 +1,4 @@
--- Heat Check schema: Romir's CONTRACT.md (origin/docs/final-context) verbatim, plus one index.
+-- CityLine schema: Romir's CONTRACT.md (origin/docs/final-context) verbatim, plus one index.
 -- Run once in the Supabase SQL editor. The FastAPI service never creates or alters tables here.
 
 create table cases (
