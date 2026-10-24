@@ -182,3 +182,45 @@ The headline metric: the share of calls the agent handled with nobody from the c
 - Dashboard: a containment tile on the home page with the percentage, `contained / handled`
   underneath, and a Today / 7 days / 30 days / All window selector (default 7 days). It refetches
   through the same `useLiveRefresh` as everything else; no new socket, no second poll.
+
+## ElevenLabs voice (added 2026-10-24) — replaces the LiveKit worker
+The call runs on an ElevenLabs Agents agent (its STT, LLM, TTS and turn-taking). The
+agent's tools are **server tools**: webhooks back into this backend. All per-call state —
+the case being worked, whether it is filed, which code may be read out — lives in the
+database, keyed by the call, because a webhook is stateless.
+
+- `POST /voice/session` body {} -> 201 `{"call_id": "CALL-7", "token": "<webrtc token>"}`.
+  Opens the call record and fetches a conversation token for `ELEVENLABS_AGENT_ID` with
+  `ELEVENLABS_API_KEY` (the key never reaches the browser). 503 if either is unset; the call
+  row is not created then. The browser starts the session with
+  `{conversationToken: token, dynamicVariables: {call_id}}`.
+- Tool webhooks, all `POST`, all need `X-Voice-Secret: $VOICE_TOOL_SECRET` (401 otherwise,
+  503 if the backend has no secret set). Every body carries `call_id`, filled from the
+  `{{call_id}}` dynamic variable, never by the LLM. Every response is 200
+  `{"result": "<a sentence the agent can say or act on>"}` — a failure is a sentence, not a
+  status code, so the agent never goes silent on a 4xx.
+  - `/voice/tools/create_case` {call_id, name, phone}
+  - `/voice/tools/update_case` {call_id, issue_type?, description?}
+  - `/voice/tools/lookup_case` {call_id, code}
+  - `/voice/tools/add_note` {call_id, note}
+  - `/voice/tools/transfer_to_staff` {call_id, reason}
+  - hang-up is ElevenLabs' built-in `end_call` system tool.
+- Rules the tools enforce (ported unchanged from the LiveKit agent):
+  - a case is **filed** once it has an `issue_type` and a non-empty description; a case
+    found by `lookup_case` counts as filed. `update_case` refuses a filed case.
+  - `create_case` refuses while the current case is open but not filed, and refuses a phone
+    number that isn't ten digits.
+  - the lookup code is returned exactly once: by the `update_case` call that files a case
+    this call created. A looked-up case's code is never returned.
+  - five wrong codes on one call -> "Too many attempts." (the existing per-call counter).
+- `POST /voice/webhooks/post-call` — ElevenLabs' post-call webhook. Verified against
+  `ElevenLabs-Signature` with `ELEVENLABS_WEBHOOK_SECRET` (401 on a bad or stale
+  signature). On `post_call_transcription` it finds the call from
+  `conversation_initiation_client_data.dynamic_variables.call_id`, writes
+  `analysis.transcript_summary` as the call summary, backfills the transcript only if no
+  lines were streamed, and marks the call ended. Unknown call or other event type -> 200,
+  ignored (a non-2xx makes ElevenLabs retry).
+- Live transcript: the browser relays each `onMessage` from the SDK to
+  `POST /calls/{id}/transcript` (role `user`|`agent`), and on disconnect PATCHes the call to
+  `ended`. The post-call webhook is the backstop for both.
+- `GET /token` (LiveKit) is removed.
