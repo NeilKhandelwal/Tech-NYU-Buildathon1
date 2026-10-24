@@ -124,7 +124,14 @@ export default function ConsolePage() {
                       onSelect={selectCase}
                     />
                     {isHeat(c) ? <ViolationCard c={c} flash={f} /> : <ReportCard c={c} flash={f} />}
-                    <SmsPanel events={events} phone={c.resident_phone} fresh={fresh} />
+                    <SmsPanel
+                      key={c.id} // a fresh composer per case: a half-typed message never jumps cases
+                      caseId={c.id}
+                      languageLabel={c.language_label ?? "their language"}
+                      events={events}
+                      phone={c.resident_phone}
+                      fresh={fresh}
+                    />
                   </div>
                 </div>
               </div>
