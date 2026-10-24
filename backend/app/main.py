@@ -621,5 +621,6 @@ async def voice_post_call(request: Request) -> dict:
         if call.status != "ended":
             changes.update(status="ended", ended_at=now())
         touch_call(conn, call_pk, **changes)
+    await outbound.on_call_ended(call_pk)  # an outbound call with no set_outcome -> no_answer
     await broadcast("call", call.id)
     return {"ok": True}
