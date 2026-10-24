@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import type { Case } from "@/lib/types";
-import { RESPONSE_LABEL } from "@/lib/types";
+import { ISSUE_LABEL, RESPONSE_LABEL, issueOf, isHeat } from "@/lib/types";
 import { addressLine, fineRange, legalMinimum, nyTime } from "@/lib/format";
-import { Card, Flash, LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
+import { Card, Flash, IssueBadge, LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
 
 type Flashing = Set<string>;
 
@@ -13,6 +13,7 @@ export function CaseHeader({ c, flash }: { c: Case; flash: Flashing }) {
     <div className="border-b border-slate-200 bg-white px-6 py-4">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <h2 className="font-mono text-3xl font-bold tracking-tight text-slate-900">{c.case_number}</h2>
+        <IssueBadge c={c} large />
         <LanguageBadge label={c.language_label ?? c.language} />
         <span className="text-2xl font-medium text-slate-800">{addressLine(c)}</span>
       </div>
@@ -23,7 +24,7 @@ export function CaseHeader({ c, flash }: { c: Case; flash: Flashing }) {
         <span className="flex items-center gap-2">
           Priority: <Flash on={flash.has("priority")}><PriorityBadge value={c.priority} large /></Flash>
         </span>
-        <Flash on={flash.has("is_violation")}><ViolationBadge value={c.is_violation} large /></Flash>
+        {isHeat(c) && <Flash on={flash.has("is_violation")}><ViolationBadge value={c.is_violation} large /></Flash>}
         <span className="text-slate-400">·</span>
         <span>{c.resident_name ?? "Name not given"}</span>
         <span className="text-slate-400">Reported {nyTime(c.created_at)}</span>
@@ -48,9 +49,30 @@ export function SummaryCard({ c, flash }: { c: Case; flash: Flashing }) {
         </p>
       </Flash>
       <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
-        <Fact label="Days without heat" value={c.days_without_heat} />
+        {isHeat(c) ? (
+          <Fact label="Days without heat" value={c.days_without_heat} />
+        ) : (
+          <Fact label="Problem" value={ISSUE_LABEL[issueOf(c)]} />
+        )}
         <Fact label="Callback number" value={formatPhone(c.resident_phone)} />
         <Fact label="Resident note" value={c.resident_response_note_en} />
+      </dl>
+    </Card>
+  );
+}
+
+// What the resident reported, for every 311 type that isn't heat (heat has the violation card).
+export function ReportCard({ c, flash }: { c: Case; flash: Flashing }) {
+  return (
+    <Card title="Report" aside={<IssueBadge c={c} />}>
+      <Flash on={flash.has("description")} className="block">
+        <p className="text-[17px] leading-relaxed text-slate-900">
+          {c.description ?? <span className="text-slate-400">No description yet.</span>}
+        </p>
+      </Flash>
+      <dl className="mt-3 space-y-2 text-sm">
+        <Fact label="Where" value={addressLine(c)} />
+        <Fact label="Reported" value={nyTime(c.created_at)} />
       </dl>
     </Card>
   );

@@ -3,15 +3,13 @@
 import { useState } from "react";
 import { saveAction, startCallback } from "@/lib/api";
 import { callState, type CallState } from "@/lib/callback";
-import { ACTIONS, type Case, type CaseEvent, type CaseworkerAction } from "@/lib/types";
-
-const template = (a: CaseworkerAction) => ACTIONS.find((x) => x.value === a)!.template;
+import { ACTIONS, messageTemplate, type Case, type CaseEvent, type CaseworkerAction } from "@/lib/types";
 
 // Keyed by case id in the page, so switching cases starts from that case's saved values.
 export function ActionPanel({ c, events }: { c: Case; events: CaseEvent[] }) {
   const initial = c.caseworker_action ?? c.suggested_action ?? "schedule_inspection";
   const [action, setAction] = useState<CaseworkerAction>(initial);
-  const [message, setMessage] = useState(c.caseworker_message_en ?? template(initial));
+  const [message, setMessage] = useState(c.caseworker_message_en ?? messageTemplate(initial, c));
   const [dirty, setDirty] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +22,7 @@ export function ActionPanel({ c, events }: { c: Case; events: CaseEvent[] }) {
 
   function pick(a: CaseworkerAction) {
     setAction(a);
-    setMessage(template(a));
+    setMessage(messageTemplate(a, c));
     setDirty(true);
   }
 

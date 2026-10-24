@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { STATUS_LABEL, type Priority, type Status } from "@/lib/types";
+import { ISSUE_LABEL, STATUS_LABEL, issueOf, isHeat, type Case, type Priority, type Status } from "@/lib/types";
 
 export function Card({ title, children, className = "", aside }: {
   title: string;
@@ -24,6 +24,20 @@ export function Flash({ on, children, className = "" }: { on: boolean; children:
 }
 
 const pill = "inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold leading-none whitespace-nowrap";
+
+export function IssueBadge({ c, large }: { c: Case; large?: boolean }) {
+  // heat keeps the red family's neighbour (orange) so it reads as "the heat line" at a glance
+  const heat = isHeat(c);
+  return (
+    <span
+      className={`${pill} ${large ? "text-sm px-2 py-1" : ""} ${
+        heat ? "bg-orange-50 text-orange-800 ring-1 ring-orange-200" : "bg-slate-800 text-white"
+      }`}
+    >
+      {ISSUE_LABEL[issueOf(c)]}
+    </span>
+  );
+}
 
 export function LanguageBadge({ label }: { label: string }) {
   return <span className={`${pill} bg-blue-50 text-blue-900 ring-1 ring-blue-200`}>{label}</span>;

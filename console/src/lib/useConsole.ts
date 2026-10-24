@@ -2,12 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
-import type { Case, CaseEvent } from "./types";
+import { CALL_EVENT_TYPES, type Case, type CaseEvent } from "./types";
 
 export type Live = "connecting" | "live" | "offline";
 
 const FLASH_MS = 2000; // DASHBOARD.md: highlight changed fields for about 2 s
 const NEW_MS = 5000; // how long a new queue row keeps its "new" highlight
+const CALL_LOG_HOURS = 3; // how far back the Calls list reaches
+
+// insert or replace by id: realtime UPDATEs carry translations and late case links
+function upsert(list: CaseEvent[], row: CaseEvent): CaseEvent[] {
+  return list.some((e) => e.id === row.id) ? list.map((e) => (e.id === row.id ? row : e)) : [...list, row];
+}
 
 // Every key whose value differs, so the case view can flash exactly what changed.
 function changedKeys(before: Case, after: Case): string[] {
@@ -19,6 +25,8 @@ function changedKeys(before: Case, after: Case): string[] {
 export function useConsole() {
   const [cases, setCases] = useState<Case[]>([]);
   const [events, setEvents] = useState<CaseEvent[]>([]);
+  // every call's log rows (call_started / transcript / call_ended), whether or not it has a case yet
+  const [callEvents, setCallEvents] = useState<CaseEvent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [live, setLive] = useState<Live>("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -79,11 +87,26 @@ export function useConsole() {
     if (selectedRef.current === caseId) setEvents(data as CaseEvent[]);
   }, []);
 
+  const loadCallEvents = useCallback(async () => {
+    if (!supabase) return;
+    const since = new Date(Date.now() - CALL_LOG_HOURS * 3600_000).toISOString();
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .in("type", CALL_EVENT_TYPES)
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(5000);
+    if (error) return setError(`Could not read calls: ${error.message}`);
+    setCallEvents(data as CaseEvent[]);
+  }, []);
+
   useEffect(() => {
     if (!supabase) return;
     const client = supabase;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
     loadCases();
+    loadCallEvents();
 
     const channel = client
       .channel("hc")
@@ -100,16 +123,18 @@ export function useConsole() {
         setCases((cs) => (before ? cs.map((c) => (c.id === row.id ? row : c)) : [row, ...cs]));
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, (msg) => {
+        if (msg.eventType === "DELETE") return;
         const row = msg.new as CaseEvent;
-        if (msg.eventType !== "INSERT" || row.case_id !== selectedRef.current) return;
-        markFresh(row.id); // only live arrivals animate, not the history loaded on open
-        setEvents((es) => (es.some((e) => e.id === row.id) ? es : [...es, row]));
+        if (msg.eventType === "INSERT") markFresh(row.id); // only live arrivals animate
+        if (CALL_EVENT_TYPES.includes(row.type)) setCallEvents((es) => upsert(es, row));
+        if (row.case_id === selectedRef.current) setEvents((es) => upsert(es, row));
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           setLive("live");
           // anything that changed while the socket was down arrives in one refetch
           loadCases();
+          loadCallEvents();
           if (selectedRef.current) loadEvents(selectedRef.current);
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           setLive("offline");
@@ -119,7 +144,7 @@ export function useConsole() {
     return () => {
       client.removeChannel(channel);
     };
-  }, [loadCases, loadEvents, markFlash, markFresh]);
+  }, [loadCases, loadCallEvents, loadEvents, markFlash, markFresh]);
 
   const select = useCallback(
     (id: string) => {
@@ -131,5 +156,5 @@ export function useConsole() {
     [loadEvents],
   );
 
-  return { cases, events, selectedId, select, live, error, flash, fresh, configured: !!supabase };
+  return { cases, events, callEvents, selectedId, select, live, error, flash, fresh, configured: !!supabase };
 }

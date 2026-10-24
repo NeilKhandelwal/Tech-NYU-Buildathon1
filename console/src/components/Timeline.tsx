@@ -12,6 +12,9 @@ const KIND: Record<EventType, { icon: string; label: string; tone: string }> = {
   callback_call: { icon: "☎", label: "Callback call", tone: "bg-blue-100 text-blue-900" },
   resident_response: { icon: "↩", label: "Resident answered", tone: "bg-emerald-100 text-emerald-800" },
   note: { icon: "•", label: "Note", tone: "bg-slate-100 text-slate-700" },
+  call_started: { icon: "☎", label: "Call started", tone: "bg-red-100 text-red-700" },
+  transcript: { icon: "…", label: "Line", tone: "bg-slate-100 text-slate-700" },
+  call_ended: { icon: "☎", label: "Call ended", tone: "bg-slate-100 text-slate-700" },
 };
 
 function detail(e: CaseEvent): string | null {
@@ -22,14 +25,16 @@ function detail(e: CaseEvent): string | null {
     if (e.payload?.stage === "ended" || e.text_original) return e.text_original ? "Call ended, transcript saved" : "Call ended";
     return "Dialing the resident";
   }
+  if (e.type === "call_started" || e.type === "call_ended") return p.agent === "callback" ? "callback" : p.agent === "intake" ? "intake" : null;
   if (e.type === "sms_out" && p.status && p.status !== "sent") return "not delivered, shown here only";
   return null;
 }
 
 export function Timeline({ events, fresh }: { events: CaseEvent[]; fresh: Set<string> }) {
-  const newest = [...events].reverse();
+  // live transcript lines have their own card; one row per line would bury everything else
+  const newest = events.filter((e) => e.type !== "transcript").reverse();
   return (
-    <Card title="Timeline" aside={<span className="text-xs text-slate-400">{events.length} events</span>}>
+    <Card title="Timeline" aside={<span className="text-xs text-slate-400">{newest.length} events</span>}>
       {newest.length === 0 && <p className="text-sm text-slate-400">No events yet.</p>}
       <ol className="space-y-3">
         {newest.map((e) => {

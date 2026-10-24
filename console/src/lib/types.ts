@@ -57,7 +57,34 @@ export type Case = {
   caseworker_message_en: string | null;
   resident_response: "confirmed" | "reschedule" | "question" | "no_answer" | null;
   resident_response_note_en: string | null;
+  // null on cases filed before the line took all 311 types: those were all heat
+  issue_type: IssueType | null;
+  description: string | null;
 };
+
+// backend/app/hc.py ISSUE_TYPES (and agent/provision.py's enum): third copy, on purpose,
+// since Python and TypeScript can't share one file
+export type IssueType =
+  | "heat_hot_water"
+  | "missed_pickup"
+  | "pothole"
+  | "streetlight"
+  | "water"
+  | "animal"
+  | "other";
+
+export const ISSUE_LABEL: Record<IssueType, string> = {
+  heat_hot_water: "No heat / hot water",
+  missed_pickup: "Missed pickup",
+  pothole: "Pothole",
+  streetlight: "Streetlight out",
+  water: "Water problem",
+  animal: "Animal problem",
+  other: "Other",
+};
+
+export const issueOf = (c: Case): IssueType => c.issue_type ?? "heat_hot_water";
+export const isHeat = (c: Case) => issueOf(c) === "heat_hot_water";
 
 export type EventType =
   | "intake_call"
@@ -67,7 +94,14 @@ export type EventType =
   | "caseworker_action"
   | "callback_call"
   | "resident_response"
-  | "note";
+  | "note"
+  // the live call log (backend/app/live.py): payload.conversation_id on each, and case_id
+  // stays null until the agent files the case
+  | "call_started"
+  | "transcript"
+  | "call_ended";
+
+export const CALL_EVENT_TYPES: EventType[] = ["call_started", "transcript", "call_ended"];
 
 export type CaseEvent = {
   id: string;
@@ -89,6 +123,22 @@ export const STATUS_LABEL: Record<Status, string> = {
   called_back: "Called back",
   resolved: "Resolved",
 };
+
+// The heat templates are DASHBOARD.md's; every other 311 type gets these, with the problem and
+// the place filled in (see messageTemplate).
+const GENERIC_TEMPLATES: Record<CaseworkerAction, string> = {
+  schedule_inspection: "A city crew will check the {issue} at {place} by Tuesday. Is there anything else we should know?",
+  need_more_info: "We need one more detail: exactly where is the {issue}, and when did it start?",
+  emergency_repair: "Your report has been sent for urgent repair. A crew may contact you. Is this the best number to reach you?",
+  resolved: "The city reports the {issue} at {place} has been fixed. Is it resolved on your end?",
+};
+
+export function messageTemplate(action: CaseworkerAction, c: Case): string {
+  if (isHeat(c)) return ACTIONS.find((a) => a.value === action)!.template;
+  return GENERIC_TEMPLATES[action]
+    .replace("{issue}", ISSUE_LABEL[issueOf(c)].toLowerCase())
+    .replace("{place}", c.address);
+}
 
 export const ACTIONS: { value: CaseworkerAction; label: string; template: string }[] = [
   {

@@ -12,7 +12,7 @@ const LIVE_STYLE: Record<Live, [string, string]> = {
 // "Waiting" = cases the city still owes a reply: submitted or in review, not yet actioned
 const WAITING = new Set(["submitted", "in_review"]);
 
-export function Header({ cases, live, now }: { cases: Case[]; live: Live; now: number }) {
+export function Header({ cases, live, onLine, now }: { cases: Case[]; live: Live; onLine: number; now: number }) {
   const open = cases.filter(isOpen);
   const urgent = open.filter((c) => c.priority === "urgent").length;
   const waiting = open.filter((c) => WAITING.has(c.status));
@@ -26,6 +26,7 @@ export function Header({ cases, live, now }: { cases: Case[]; live: Live; now: n
       <Mark />
       <h1 className="text-xl font-semibold tracking-tight text-slate-900">
         Heat Check Caseworker Console <span className="font-normal text-slate-400">(demo)</span>
+        <span className="ml-3 align-middle text-xs font-medium uppercase tracking-wider text-slate-400">All 311 reports</span>
       </h1>
       <div className="ml-auto flex items-center gap-8 text-sm">
         <span className="flex items-center gap-2 font-medium text-slate-700">
@@ -34,6 +35,7 @@ export function Header({ cases, live, now }: { cases: Case[]; live: Live; now: n
           </span>
           {label}
         </span>
+        <Stat label="On the line" value={onLine} alert={onLine > 0} />
         <Stat label="Open" value={open.length} />
         <Stat label="Urgent" value={urgent} alert={urgent > 0} />
         <Stat label="Avg wait" value={avgWait === null ? "—" : minutes(avgWait)} />
