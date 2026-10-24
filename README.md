@@ -2,7 +2,7 @@
 
 <p align="center"><strong>311 that speaks your language, and a caseworker console that talks back.</strong></p>
 
-CityLine is a voice line for city service complaints, built first for New York tenants who have no heat. A resident calls one number and speaks in their own language. A voice agent takes the complaint, checks it against the city's heat law in real time, and files it only after the resident says yes. The case lands on a caseworker console already translated into English and paired with the building's history. When the caseworker decides what happens next, CityLine calls the resident back and delivers that decision in their language.
+CityLine is a voice line for city service complaints, built first for New York tenants with issues. A resident calls one number and speaks in their own language. A voice agent takes the complaint, checks it against the city's laws and policies in real time, and files it only after the resident says yes. The case lands on a caseworker console already translated into English and paired with the building's history. When the caseworker decides what happens next, CityLine calls the resident back and delivers that decision in their language.
 
 The people who struggle most with 311 are often elderly or not comfortable in English, and every step of a heat complaint today happens in English, through phone menus, during working hours. CityLine removes the language barrier on both ends of the conversation. The city is the customer, and the resident never has to download anything.
 
