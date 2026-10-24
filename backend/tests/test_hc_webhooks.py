@@ -247,3 +247,28 @@ def test_caseworker_text_sends_their_words_translated(api, monkeypatch):
     assert api.post(f"/api/cases/{case['id']}/sms", json={"text_en": " "}).status_code == 422
     assert api.post("/api/cases/00000000-0000-0000-0000-000000000000/sms",
                     json={"text_en": "hi"}).status_code == 404
+
+
+def test_callback_answer_written_as_text_is_still_recorded(api, monkeypatch):
+    """Live, Sonnet 5 wrote record_resident_response into its reply instead of calling it; the
+    resident had answered, but the console said "No answer". The webhook must rescue it."""
+    from app import hc
+
+    async def no_sms(case, kind, text_en):
+        pass
+
+    monkeypatch.setattr(hc, "send_sms", no_sms)
+    monkeypatch.setenv("ELEVENLABS_CALLBACK_AGENT_ID", "agent-callback")
+    case = case_with_conversation(status="callback_requested", caseworker_action="schedule_inspection")
+    leaked = ('<invoke name="record_resident_response">\n<parameter name="response">confirmed</parameter>\n'
+              '<parameter name="note_original">कुछ नहीं, सब ठीक है।</parameter>\n'
+              '<parameter name="note_en">Nothing, all fine.</parameter>\n</invoke>')
+    later = leaked.replace("confirmed", "question")  # the model's second, wrong one is ignored
+    transcript = [{"role": "agent", "message": "Hello Harsh"}, {"role": "user", "message": "सब ठीक है"},
+                  {"role": "agent", "message": leaked}, {"role": "agent", "message": later}]
+    api.post("/api/webhooks/elevenlabs_post_call",
+             json=post_call(agent_id="agent-callback", transcript=transcript))
+    got = hcdb.get_case(case["id"])
+    assert (got["resident_response"], got["status"]) == ("confirmed", "called_back")
+    assert got["resident_response_note_en"] == "Nothing, all fine."
+    assert "resident_response" in [e["type"] for e in hcdb.list_events(case["id"])]
