@@ -14,7 +14,7 @@ from app import building, hc, hcdb
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     monkeypatch.setenv("HC_DATABASE_URL", f"sqlite:///{tmp_path / 'hc.db'}")
-    for k in ("XAI_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_WEBHOOK_SECRET",
+    for k in ("XAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "ELEVENLABS_WEBHOOK_SECRET",
               "ELEVENLABS_CALLBACK_AGENT_ID"):
         monkeypatch.delenv(k, raising=False)
     hcdb.reset_engine()
