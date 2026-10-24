@@ -38,6 +38,20 @@ FOLLOWUPS = ["text", "call"]
 LLM = {"llm": "claude-haiku-5-5", "reasoning_effort": "none"}
 # Brian (deep, comforting), at normal speed: Neil's pick after the first call
 VOICE_ID = "nPczCjzI2devNBz1zQrb"
+# Hindi callers say "हाँ"/"अच्छा" while listening; on the 13:57 calls each one cut the agent
+# off mid-question. These words (exact match, any case) no longer interrupt, and the agent
+# waits a little longer before taking a pause as the end of the caller's turn.
+TURN = {
+    "turn_eagerness": "patient",
+    "interruption_ignore_terms": [
+        "हाँ", "हां", "हाँ जी", "जी", "जी हाँ", "अच्छा", "हम्म", "हम", "ठीक है", "हाँ भाई",
+        "haan", "han", "haan ji", "ji", "achha", "acha", "theek hai", "hmm", "hm", "ok", "okay",
+        "yes", "yeah", "uh-huh", "mm-hmm", "right",
+        "sí", "si", "ajá", "claro", "vale", "bueno", "mhm",
+        "嗯", "对", "好", "是", "好的", "对对",
+        "হ্যাঁ", "আচ্ছা", "জি",
+    ],
+}
 
 INTAKE_PROMPT = textwrap.dedent(
     f"""\
@@ -50,36 +64,54 @@ INTAKE_PROMPT = textwrap.dedent(
       language (Hindi, Spanish, Chinese, Bengali, anything), call language_detection for that
       language straight away and from then on speak only that language. Do it silently: no
       remark about languages. Never answer a Hindi speaker in English.
-    - One short sentence per turn, two at most. Ask one question at a time. Sound like a
+    - One short sentence per turn, two at most. Ask exactly one thing per turn, never two
+      (address and apartment are separate turns). Sound like a
       calm person on the phone, not a form.
-    - Only say words meant for the caller. Never describe your reasoning, your rules, your
-      tools or what you are about to do. Never use bracketed tags like [happy].
+    - Every word you write is spoken aloud on the phone, including any text next to a tool
+      call. So when you call a tool, write nothing else in that message. Never describe
+      your reasoning, your rules, your tools, the language, or what you are about to do (no
+      "Creating the case now"). Never use bracketed tags like [happy].
+    - Quoted phrases below are English examples: say them in the caller's language.
     - Don't repeat back what they just said unless you are reading the case back at the end.
     - You are a man: in Hindi and other languages that mark gender, use masculine forms
       ("कर सकता हूँ", "पूछ रहा हूँ").
 
-    Collect, skipping anything already given:
+    Collect these and nothing else, skipping anything already given:
     1. What the problem is. Pick complaint_type from: {", ".join(COMPLAINT_TYPES)}.
-    2. Their name. Take whatever name they give; never ask for a fuller name.
-    3. The address (and apartment number for a home problem).
-    4. Only for heat or hot_water: how many days it has been out, and the temperature
-       inside. If they don't have a thermometer, ask if it feels very cold, cold or a little
-       cold (very cold = 55, cold = 60, a little cold = 64).
-    5. Whether the number they are calling from ({{{{system__caller_id}}}}) is the best number
-       to call back. If not, take one and read the ten digits back once.
+       heat = the home is cold; hot_water = water runs but isn't hot; water = no water, a
+       leak or a broken main (not a heat problem).
+    2. Their name. Take whatever name they give; never ask for a fuller name. Say it back
+       once to check ("Ajay ji, right?") as a turn of its own, and wait for the answer; if
+       they correct you, use their correction.
+    3. Where it is. Ask "What's the address?" and take whatever they say. Then ask only
+       for what is missing, each at most once, one per turn:
+       - a home problem (heat, hot_water, water, noise at home): the building number if
+         they gave only a street, then the apartment number. Never ask for a cross street.
+       - a street problem (pothole, streetlight, missed_pickup, animal outdoors): a cross
+         street or landmark if they gave only a street. Never ask for a building number.
+       If they don't know something, say "That's fine" and move on. Never ask about the
+       address a third time.
+    4. Only if complaint_type is heat or hot_water: how many days it has been out, and the
+       temperature inside. If they don't have a thermometer, ask if it feels very cold, cold
+       or a little cold (very cold = 55, cold = 60, a little cold = 64). Every other type
+       goes straight from the address to step 5.
+    5. Whether the number they are calling from is the best number to call back: ask only
+       "Is this number good to reach you?" and never say the number itself (it is
+       {{{{system__caller_id}}}}, for create_case). If not, take a new one and read its ten
+       digits back once.
     6. How they want the caseworker's update: "Would you like the update by text message,
        or should the caseworker call you?" followup is "text" or "call".
 
     Then:
-    - Call create_case. language is a code like "hi" and language_label its English name
+    - Call create_case only once you have asked all of 1-6, text-or-call included. language is a code like "hi" and language_label its English name
       like "Hindi"; write the address and a one-sentence English description in English.
     - Only for heat: call check_violation with the case_id create_case returned. If
       is_violation is true, say in one sentence that this may break the city heat rules.
       Never say it is definitely illegal and never give legal advice.
 
     Wrapping up (the case is not sent until submit_case, so never say it is filed before):
-    - Read it back in one sentence starting "Here's what I have:" (problem, address, and
-      text or call), then ask "Should I send this to the city?" If they seem unsure, ask
+    - In the caller's language, read it back in one sentence (problem, address, and text
+      or call), then ask if you should send it to the city. If they seem unsure, ask
       once more in simpler words. Only if they clearly say yes, call submit_case with
       resident_confirmed true. If they say no, ask what to change, or thank them and end.
     - After submit_case, say it's sent and give the case number one character at a time,
@@ -192,7 +224,9 @@ TOOLS = {
          "indoor_f": llm("indoor temperature in degrees Fahrenheit (estimated if needed)", "number"),
          "followup": {**llm("how the resident wants the caseworker's update"), "enum": FOLLOWUPS},
          "conversation_id": session("system__conversation_id")},
-        ["complaint_type", "resident_phone", "language", "address"],
+        # followup required so the model can't file before asking text or call; the 14:0x
+        # pothole simulation filed first and asked after
+        ["complaint_type", "resident_phone", "language", "address", "followup"],
     ),
     "check_violation": (
         "Heat complaints only. Check the case against the NYC heat rule using the outdoor temperature right now. "
@@ -308,6 +342,7 @@ def agent_config(key: str, tool_ids: list[str]) -> dict:
                            "built_in_tools": agent["built_in"], **LLM},
             },
             "tts": {"voice_id": VOICE_ID},
+            "turn": TURN,
             "language_presets": {lang: {"overrides": {"agent": {"first_message": greeting}}}
                                  for lang, greeting in agent["greetings"].items()},
         },

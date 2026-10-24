@@ -118,6 +118,14 @@ def test_callback_says_it_is_automated_before_anything_else():
     assert "automated" in ",".join(first[:2]), provision.CALLBACK_FIRST_MESSAGE
 
 
+def test_listening_words_do_not_cut_the_agent_off():
+    """On the 13:57 Hindi calls every "हाँ" while the agent spoke interrupted it, so the
+    caller never heard a whole question."""
+    for key in provision.AGENTS:
+        turn = provision.agent_config(key, [])["conversation_config"]["turn"]
+        assert {"हाँ", "अच्छा", "जी", "haan", "ok"} <= set(turn["interruption_ignore_terms"]), key
+
+
 def test_followups_match_the_backend():
     """The resident chose text or call on the phone; a value hc.py doesn't know would lose
     that choice and the caseworker would follow up the wrong way."""
