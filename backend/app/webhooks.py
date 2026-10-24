@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
-from app import building, elevenlabs, llm
+from app import building, elevenlabs, llm, voicenote
 
 logger = logging.getLogger("backend")
 
@@ -135,10 +135,12 @@ async def twilio_sms(request: Request) -> Response:
     phone = hcdb().digits(sms.case_phone(sender)) if sender else ""
     body = form.get("Body", "").strip()
     case = hcdb().find_case_by_phone(phone) if phone else None
+    note = await voicenote.from_form(form) if case else None  # a WhatsApp voice note, as text
+    body = body or (note or {}).get("text", "")
     if case and body:
         english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")
         hcdb().add_event(case["id"], "sms_in", "resident", text_original=body, text_en=english,
-                         payload={"from": phone})
+                         payload={"from": phone, **((note or {}).get("payload") or {})})
     # empty TwiML: no auto-reply text
     return Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
                     media_type="application/xml")
