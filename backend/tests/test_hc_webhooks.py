@@ -8,7 +8,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import hc, hcdb
+from app import building, hc, hcdb
 
 
 @pytest.fixture
@@ -129,3 +129,47 @@ def test_callback_post_call_event_is_marked_ended(api, monkeypatch):
     api.post("/api/webhooks/elevenlabs_post_call", json=post_call(agent_id="agent-callback"))
     [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
     assert ended["payload"]["stage"] == "ended"
+
+
+def test_submit_reaches_the_console_with_building_and_priority(api, monkeypatch):
+    """End to end through hc.py: the resident's yes alone must leave a complete queue row."""
+    from app import hc
+
+    async def no_geocode(address):
+        return {}
+
+    async def no_sms(case, kind, text_en):
+        pass
+
+    monkeypatch.delenv("HC_TOOL_SECRET", raising=False)
+    monkeypatch.setattr(hc, "geocode", no_geocode)
+    monkeypatch.setattr(hc, "send_sms", no_sms)
+    out = api.post("/api/tools/create_case", json={
+        "resident_name": "Ramesh", "resident_phone": "5551234567", "language": "hi",
+        "address": "2800 Creston Avenue, Bronx", "unit": "4B", "days_without_heat": 3,
+        "indoor_f": 61}).json()
+    hcdb.update_case(out["case_id"], is_violation=True)  # check_violation's job, weather-dependent
+    api.post("/api/tools/submit_case", json={"case_id": out["case_id"], "resident_confirmed": True})
+    got = hcdb.get_case(out["case_id"])
+    assert (got["status"], got["priority"], got["building"]["source"]) == ("submitted", "urgent", "seed")
+
+
+def test_seed_is_idempotent_and_backdated(api, monkeypatch):
+    """Re-running the seed before the demo must not double the queue, and seeds must sort
+    below the live call (older created_at)."""
+    import asyncio
+    from scripts import hc_seed
+
+    async def offline(address, borough=None):
+        return building.not_found(address) if "Creston" not in address else \
+            await real(address, borough)
+
+    real = building.building_lookup
+    monkeypatch.setattr(hc_seed.building, "building_lookup", offline)
+    asyncio.run(hc_seed.main())
+    asyncio.run(hc_seed.main())
+    numbers = [c["case_number"] for c in hcdb.list_cases()]
+    assert sorted(numbers) == sorted(s["case_number"] for s in hc_seed.SEEDS)
+    creston = hcdb.get_case_by_number("HC-104233")
+    assert creston["building"]["repeat_offender"] and creston["created_at"] < hcdb.now().isoformat()
+    assert [e["type"] for e in hcdb.list_events(creston["id"])][-1] == "resident_response"
