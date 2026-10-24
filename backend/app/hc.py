@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -72,6 +72,7 @@ def fetch(case_id) -> dict:
 SMS = {
     "es": {
         "confirmation": "Heat Check: su queja por falta de calefacción {case_number} fue enviada al encargado de casos de la ciudad. Le llamaremos en español.",
+        "photo_request": "Heat Check {case_number}: responda a este mensaje con una foto de su termómetro o radiador. Ayuda a probar la falta de calefacción.",
         "receipt": "Heat Check {case_number}: {action}. Su respuesta: {response}. Puede responder en cualquier momento.",
         "actions": {"schedule_inspection": "se programará una inspección",
                     "need_more_info": "el encargado de casos necesita más información",
@@ -83,6 +84,7 @@ SMS = {
     },
     "hi": {
         "confirmation": "हीट चेक: बिना हीट की आपकी शिकायत {case_number} शहर के केसवर्कर को भेज दी गई है। हम आपको हिंदी में वापस कॉल करेंगे।",
+        "photo_request": "हीट चेक {case_number}: कृपया इस संदेश के जवाब में अपने थर्मामीटर या रेडिएटर की एक फ़ोटो भेजें। इससे हीट न होने का सबूत मिलता है।",
         "receipt": "हीट चेक {case_number}: {action}। आपका जवाब: {response}। आप कभी भी जवाब दे सकते हैं।",
         "actions": {"schedule_inspection": "निरीक्षण तय किया जाएगा",
                     "need_more_info": "केसवर्कर को और जानकारी चाहिए",
@@ -100,22 +102,26 @@ def localized(case: dict, kind: str) -> str | None:
     t = SMS.get(case["language"])
     if t is None:
         return None
-    if kind == "confirmation":
-        return t["confirmation"].format(case_number=case["case_number"])
+    if kind in ("confirmation", "photo_request"):
+        return t[kind].format(case_number=case["case_number"])
+    if kind != "receipt":
+        return None  # the caseworker's own words: translated by sms.py, never a template
     action = t["actions"].get(case["caseworker_action"] or "", t["reviewed"])
     response = t["responses"].get(case["resident_response"] or "", "")
     return t["receipt"].format(case_number=case["case_number"], action=action, response=response)
 
 
-async def send_sms(case: dict, kind: str, text_en: str) -> None:
+async def send_sms(case: dict, kind: str, text_en: str) -> dict | None:
+    """The sms_out event, or None if even logging it failed."""
     if sms is None:  # lane B not merged yet: log what would have gone out
-        hcdb.add_event(case["id"], "sms_out", "system", text_en=text_en,
-                       payload={"kind": kind, "status": "skipped", "reason": "sms module missing"})
-        return
+        return hcdb.add_event(case["id"], "sms_out", "system", text_en=text_en,
+                              payload={"kind": kind, "status": "skipped",
+                                       "reason": "sms module missing"})
     try:
-        await sms.send_sms(case, kind, text_en, body=localized(case, kind))
+        return await sms.send_sms(case, kind, text_en, body=localized(case, kind))
     except Exception:  # a failed text must never fail the tool the agent is waiting on
         logger.exception("send_sms failed")
+        return None
 
 
 async def geocode(address: str) -> dict:
@@ -255,6 +261,28 @@ async def record_resident_response(body: ResidentResponse) -> dict:
     return {"ok": True}
 
 
+# ---- intake agent: mid-call photo request ----
+
+class RequestPhoto(BaseModel):
+    case_id: str
+
+
+@app.post("/api/tools/request_photo", dependencies=[Depends(tool_auth)])
+async def request_photo(body: RequestPhoto) -> dict:
+    case = hcdb.get_case(body.case_id)
+    if case is None:
+        return {"ok": False, "error": "no case with that case_id; call create_case first"}
+    event = await send_sms(case, "photo_request",
+                           f"Heat Check {case['case_number']}: reply to this message with a photo "
+                           f"of your thermometer or radiator. It helps prove the heat is out.")
+    # the call goes on either way; the agent just shouldn't promise a message that failed
+    if event and event["payload"].get("status") == "sent":
+        return {"ok": True, "result": "Sent. Tell them a message just arrived on their phone and "
+                                      "they can reply with the photo now or after the call."}
+    return {"ok": True, "result": "The message may not arrive. Tell them the caseworker can "
+                                  "still take the complaint without a photo, and carry on."}
+
+
 # ---- dashboard ----
 
 @app.get("/api/cases")
@@ -310,6 +338,35 @@ async def callback(case_id: str) -> dict:
     hcdb.add_event(case["id"], "callback_call", "callback_agent",
                    payload={"conversation_id": conversation_id})
     return {"ok": True, "conversation_id": conversation_id}
+
+
+class CaseworkerText(BaseModel):
+    text_en: str
+
+
+@app.post("/api/cases/{case_id}/sms", status_code=201)
+async def caseworker_text(case_id: str, body: CaseworkerText) -> dict:
+    if not body.text_en.strip():
+        raise HTTPException(status_code=422, detail="text_en is empty")
+    if sms is None:
+        raise HTTPException(status_code=503, detail="sms module missing")
+    case = fetch(case_id)
+    # the caseworker wrote it and clicked Send: that is the human check, so no template
+    return await sms.send_sms(case, "caseworker", body.text_en.strip())
+
+
+@app.get("/api/events/{event_id}/media/{n}")
+async def event_media(event_id: str, n: int) -> Response:
+    event = hcdb.get_event(event_id)
+    media = ((event or {}).get("payload") or {}).get("media") or []
+    if sms is None or not 0 <= n < len(media):
+        raise HTTPException(status_code=404, detail="no such media")
+    got = await sms.fetch_media(media[n]["twilio_url"])
+    if got is None:
+        raise HTTPException(status_code=404, detail="Twilio did not return the media")
+    content, content_type = got
+    return Response(content, media_type=content_type,
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/health")

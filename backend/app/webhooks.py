@@ -6,6 +6,7 @@ response, so ElevenLabs never times out and retries a call we already have.
 import json
 import logging
 import os
+import uuid
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
@@ -129,12 +130,24 @@ async def elevenlabs_post_call(request: Request, tasks: BackgroundTasks) -> dict
 async def twilio_sms(request: Request) -> Response:
     # form-encoded; parsed by hand so FastAPI's Form() doesn't pull in python-multipart
     form = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
-    body, phone = form.get("Body", "").strip(), digits(form.get("From"))
+    from app import sms  # late, like hcdb(): this file must load without lane modules
+    sender = "".join(c for c in form.get("From", "") if c.isdigit())
+    # a WhatsApp alias maps back to the case's phone; hcdb.digits keeps a non-US country code
+    phone = hcdb().digits(sms.case_phone(sender)) if sender else ""
+    body = form.get("Body", "").strip()
     case = hcdb().find_case_by_phone(phone) if phone else None
-    if case and body:
-        english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")
+    event_id = uuid.uuid4()
+    # a photo arrives as MediaUrl0..N; the browser loads it through /api/events/:id/media/:n
+    media = [{"url": f"/api/events/{event_id}/media/{n}",
+              "content_type": form.get(f"MediaContentType{n}", ""),
+              "twilio_url": form[f"MediaUrl{n}"]}
+             for n in range(int(form.get("NumMedia") or 0)) if form.get(f"MediaUrl{n}")]
+    if case and (body or media):
+        english = body if not body or llm.is_english(case.get("language")) \
+            else await llm.translate(body, "en")
         hcdb().add_event(case["id"], "sms_in", "resident", text_original=body, text_en=english,
-                         payload={"from": phone})
+                         payload={"from": phone, "media": media}, event_id=event_id)
+        hcdb().update_case(case["id"])  # touches updated_at: a reply moves the case up the queue
     # empty TwiML: no auto-reply text
     return Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
                     media_type="application/xml")

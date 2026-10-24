@@ -177,13 +177,24 @@ def list_cases() -> list[dict]:
 
 
 def add_event(case_id, type: str, actor: str | None, text_original: str | None = None,
-              text_en: str | None = None, payload: dict | None = None) -> dict:
-    values = {"id": uuid.uuid4(), "case_id": _uuid(case_id), "created_at": now(), "type": type,
-              "actor": actor, "text_original": text_original, "text_en": text_en,
+              text_en: str | None = None, payload: dict | None = None,
+              event_id: uuid.UUID | None = None) -> dict:
+    # event_id lets a caller put the event's own id in its payload (an inbound photo's URL)
+    values = {"id": event_id or uuid.uuid4(), "case_id": _uuid(case_id), "created_at": now(),
+              "type": type, "actor": actor, "text_original": text_original, "text_en": text_en,
               "payload": payload}
     with engine().begin() as conn:
         conn.execute(insert(events).values(**values))
         return _row(conn.execute(select(events).where(events.c.id == values["id"])).one())
+
+
+def get_event(event_id) -> dict | None:
+    pk = _uuid(event_id)
+    if pk is None:
+        return None
+    with engine().begin() as conn:
+        row = conn.execute(select(events).where(events.c.id == pk)).first()
+        return _row(row) if row else None
 
 
 def list_events(case_id) -> list[dict]:

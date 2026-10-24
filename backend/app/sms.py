@@ -12,12 +12,48 @@ logger = logging.getLogger("backend")
 
 TWILIO_URL = "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json"
 
+
+def aliases() -> dict[str, str]:
+    """WHATSAPP_ALIASES="9297800582=919108651858,…": a case's phone -> the WhatsApp number that
+    stands in for it. A case's phone is the caller ID, and a demo caller's WhatsApp can be on
+    another number (another country, even)."""
+    pairs = (p.split("=", 1) for p in os.environ.get("WHATSAPP_ALIASES", "").split(",") if "=" in p)
+    return {a.strip(): b.strip() for a, b in pairs}
+
+
+def case_phone(from_digits: str) -> str:
+    """The case phone a message from these digits belongs to: the alias reversed, if any."""
+    for case, whatsapp in aliases().items():
+        if whatsapp == from_digits:
+            return case
+    return from_digits
+
+
+async def fetch_media(twilio_url: str) -> tuple[bytes, str] | None:
+    """A resident's photo from Twilio (it needs our auth, so the browser can't load it)."""
+    sid, token = os.environ.get("TWILIO_ACCOUNT_SID"), os.environ.get("TWILIO_AUTH_TOKEN")
+    if not (sid and token and twilio_url.startswith("https://api.twilio.com/")):
+        return None  # only ever Twilio's own URLs: this must not fetch arbitrary hosts
+    try:
+        # Twilio answers with a redirect to the file's storage location
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            r = await client.get(twilio_url, auth=(sid, token))
+        if r.status_code >= 400:
+            return None
+        return r.content, r.headers.get("content-type", "application/octet-stream")
+    except Exception:
+        logger.exception("fetching Twilio media failed")
+        return None
+
+
 async def twilio_send(to_digits: str, body: str) -> tuple[str, str | None, str | None]:
     """(status, sid, error); status sent | failed | skipped. Never raises."""
     sid, token, from_ = (os.environ.get(k) for k in
                          ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"))
     if not (sid and token and from_):
         return "skipped", None, None
+    if os.environ.get("TWILIO_CHANNEL") == "whatsapp":
+        to_digits = aliases().get(to_digits, to_digits)
     # hcdb.digits stores US numbers as ten digits and keeps any other country code, e.g. a
     # +91 WhatsApp number is 919108651858
     to = "+1" + to_digits if len(to_digits) == 10 else "+" + to_digits
