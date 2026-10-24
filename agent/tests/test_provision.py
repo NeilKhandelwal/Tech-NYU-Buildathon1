@@ -103,3 +103,22 @@ def test_analysis_comes_back_in_english_for_the_caseworker():
         settings = provision.agent_config(key, [])["platform_settings"]
         assert settings["summary_language"] == "en", key
         assert settings["data_collection"]["transcript_en"]["type"] == "string", key
+
+
+def test_complaint_types_match_the_backend():
+    """hc.py maps an unknown type to 'other'; drift would file every pothole as 'other'."""
+    body = re.search(r"COMPLAINT_TYPES = [[(](.*?)[])]", HC.read_text(), re.S).group(1)
+    assert provision.COMPLAINT_TYPES == re.findall(r'"(\w+)"', body)
+
+
+def test_agents_run_a_model_that_does_not_think_aloud():
+    """The first live call ran ElevenLabs' default reasoning model, which spoke its reasoning
+    to the caller; both agents must pin a model with reasoning off."""
+    for key in provision.AGENTS:
+        prompt = provision.agent_config(key, [])["conversation_config"]["agent"]["prompt"]
+        assert prompt["llm"] == provision.LLM["llm"] and prompt["reasoning_effort"] == "none", key
+
+
+def test_intake_prompt_keeps_the_caller_id_variable():
+    """The f-string escapes must still leave ElevenLabs' {{system__caller_id}} in the text."""
+    assert "{{system__caller_id}}" in provision.INTAKE_PROMPT
