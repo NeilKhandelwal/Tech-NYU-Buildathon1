@@ -148,17 +148,20 @@ CALLBACK_PROMPT = textwrap.dedent(
     """
 )
 
-CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is CityLine calling about your complaint, "
-                          "case {{case_number}}. Is now a good time?")
+# we place this call in a synthetic voice, so it says it's automated before anything else
+# (Neil's call); intake only says so when asked, since there the resident dialled us
+CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is CityLine's automated line, calling for "
+                          "your caseworker about your complaint, case {{case_number}}. "
+                          "Is now a good time?")
 CALLBACK_GREETINGS = {
-    "hi": "नमस्ते {{resident_name}}, मैं सिटीलाइन से आपकी शिकायत, केस {{case_number}}, के बारे में बोल रहा हूँ। क्या अभी बात कर सकते हैं?",
-    "es": "Hola {{resident_name}}, le llamo de CityLine sobre su queja, caso {{case_number}}. ¿Es un buen momento?",
-    "zh": "您好 {{resident_name}}，这里是 CityLine，关于您的投诉（案件 {{case_number}}）给您回电。现在方便吗？",
-    "bn": "নমস্কার {{resident_name}}, আমি সিটিলাইন থেকে আপনার অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করছি। এখন কি কথা বলা যাবে?",
-    "ru": "Здравствуйте, {{resident_name}}, это CityLine, звоню по вашей жалобе, дело {{case_number}}. Вам удобно говорить?",
-    "ko": "안녕하세요 {{resident_name}}님, CityLine입니다. 민원 {{case_number}}건 관련해서 전화드렸습니다. 지금 통화 괜찮으세요?",
-    "ar": "مرحبًا {{resident_name}}، معك CityLine بخصوص شكواك، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
-    "fr": "Bonjour {{resident_name}}, ici CityLine, au sujet de votre plainte, dossier {{case_number}}. Est-ce un bon moment ?",
+    "hi": "नमस्ते {{resident_name}}, यह सिटीलाइन की ऑटोमेटेड लाइन है, आपके केसवर्कर की ओर से आपकी शिकायत, केस {{case_number}}, के बारे में कॉल कर रही है। क्या अभी बात कर सकते हैं?",
+    "es": "Hola {{resident_name}}, le habla la línea automática de CityLine, de parte de su trabajador social, sobre su queja, caso {{case_number}}. ¿Es un buen momento?",
+    "zh": "您好 {{resident_name}}，这里是 CityLine 自动语音专线，代表您的个案工作人员就您的投诉（案件 {{case_number}}）给您来电。现在方便吗？",
+    "bn": "নমস্কার {{resident_name}}, এটি সিটিলাইনের স্বয়ংক্রিয় লাইন, আপনার কেসওয়ার্কারের পক্ষ থেকে আপনার অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করা হচ্ছে। এখন কি কথা বলা যাবে?",
+    "ru": "Здравствуйте, {{resident_name}}, это автоматическая линия CityLine, звоним от имени вашего сотрудника по жалобе, дело {{case_number}}. Вам удобно говорить?",
+    "ko": "안녕하세요 {{resident_name}}님, CityLine 자동 안내 전화입니다. 담당자를 대신해 민원 {{case_number}}건 관련해서 전화드렸습니다. 지금 통화 괜찮으세요?",
+    "ar": "مرحبًا {{resident_name}}، معك الخط الآلي لـ CityLine، نتصل نيابةً عن موظف الحالة بخصوص شكواك، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
+    "fr": "Bonjour {{resident_name}}, ici la ligne automatique de CityLine, qui appelle de la part de votre agent au sujet de votre plainte, dossier {{case_number}}. Est-ce un bon moment ?",
 }
 
 
