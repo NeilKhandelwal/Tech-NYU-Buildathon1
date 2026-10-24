@@ -50,6 +50,17 @@ def test_priority_ranks_cold_violations_first():
     assert llm.priority({"is_violation": False, "indoor_f": 70}, {"repeat_offender": True}) == "high"
 
 
+def test_pitch_case_suggests_an_inspection_not_emergency_repair(monkeypatch):
+    """The demo: 61F inside, 41F out, 3 days, Hindi. The console must say 'AI suggests:
+    inspection'. A live Claude run said emergency_repair, which is only for the Emergency
+    Repair Program's thresholds (64F day / 58F night after the owner fails to fix)."""
+    fake_claude(monkeypatch, FakeMessages(claude_reply(json.dumps(
+        {"transcript_en": "x", "summary_en": "y", "suggested_action": "emergency_repair"}))))
+    case = {"language": "hi", "indoor_f": 61, "outdoor_f": 41, "is_violation": True,
+            "days_without_heat": 3, "address": "2800 Creston Ave"}
+    assert asyncio.run(llm.analyze("Resident: ...", case))["suggested_action"] == "schedule_inspection"
+
+
 def test_analyze_without_any_llm_still_suggests_an_action(monkeypatch):
     no_llm(monkeypatch)
     out = asyncio.run(llm.analyze("Agent: hi", {"language": "en", "indoor_f": 55,
@@ -58,8 +69,8 @@ def test_analyze_without_any_llm_still_suggests_an_action(monkeypatch):
                    "suggested_action": "emergency_repair"}
 
 
-def test_analyze_takes_grok_json_and_rejects_an_unknown_action(monkeypatch):
-    """Only the four dashboard actions are valid; anything else falls back to the rule."""
+def test_analyze_takes_grok_json_but_never_its_action(monkeypatch):
+    """The suggestion is the rule's, whatever the LLM says."""
     monkeypatch.setenv("XAI_API_KEY", "k")
     reply = {"transcript_en": "Agent: Hello", "summary_en": "Cold flat.", "suggested_action": "sue"}
     seen = mock_http(monkeypatch, llm, lambda r: httpx.Response(
@@ -202,12 +213,11 @@ def fake_claude(monkeypatch, messages):
 def test_claude_analysis_when_only_an_anthropic_key_is_set(monkeypatch):
     """The team's only working key is Anthropic's; without this path every Hindi case
     reaches the caseworker untranslated."""
-    reply = {"transcript_en": "Resident: No heat.", "summary_en": "No heat.",
-             "suggested_action": "schedule_inspection"}
+    reply = {"transcript_en": "Resident: No heat.", "summary_en": "No heat."}
     messages = FakeMessages(claude_reply("```json\n" + json.dumps(reply) + "\n```"))
     fake_claude(monkeypatch, messages)
     out = asyncio.run(llm.analyze("Resident: हीटिंग नहीं है", {"language": "hi", "indoor_f": 61, "address": "x"}))
-    assert out == reply
+    assert out == {**reply, "suggested_action": "schedule_inspection"}
     assert messages.calls[0]["model"] == "claude-haiku-5-5"
 
 

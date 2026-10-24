@@ -20,7 +20,6 @@ XAI_URL = "https://api.x.ai/v1/chat/completions"
 DEFAULT_XAI_MODEL = "grok-4.7"
 DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
 TIMEOUT_S = 20
-ACTIONS = ["schedule_inspection", "need_more_info", "emergency_repair", "resolved"]
 
 
 async def grok(prompt: str, json_mode: bool = False) -> str | None:
@@ -104,15 +103,15 @@ def analysis_prompt(transcript: str, case: dict) -> str:
         "Reply with only a JSON object with keys:\n"
         '  "transcript_en": the full transcript translated to English, keeping the '
         "'Agent:' / 'Resident:' line prefixes (copy it unchanged if already English),\n"
-        '  "summary_en": two or three plain English sentences for the caseworker,\n'
-        f'  "suggested_action": one of {ACTIONS}.\n'
+        '  "summary_en": two or three plain English sentences for the caseworker.\n'
         f"Reply with only the JSON object, no other text.\n\nTranscript:\n{transcript}")
 
 
 async def analyze(transcript: str, case: dict) -> dict:
-    """{transcript_en, summary_en, suggested_action} from the LLM; any key it can't give is
-    None (suggested_action falls back to the rule in `suggest`)."""
-    out: dict = {"transcript_en": None, "summary_en": None, "suggested_action": None}
+    """{transcript_en, summary_en} from the LLM (None where it can't give one) plus
+    suggested_action, which is always the rule in `suggest`: the same facts must always
+    suggest the same action, and the caseworker can see why."""
+    out: dict = {"transcript_en": None, "summary_en": None}
     raw = await ask(analysis_prompt(transcript, case), json_mode=True)
     if raw is None:  # no Grok/Claude: translate with Gemini at least, the summary falls back upstream
         out["transcript_en"] = transcript if is_english(case.get("language")) else \
@@ -123,13 +122,12 @@ async def analyze(transcript: str, case: dict) -> dict:
             out.update({k: parsed.get(k) for k in out if isinstance(parsed.get(k), str)})
         except (ValueError, AttributeError):
             logger.warning("grok analysis was not JSON")
-    if out["suggested_action"] not in ACTIONS:
-        out["suggested_action"] = suggest(case)
+    out["suggested_action"] = suggest(case)
     return out
 
 
 def suggest(case: dict) -> str:
-    """The rule behind the suggestion when no LLM gives a valid one."""
+    """The suggested next step, by rule (no LLM)."""
     if case.get("is_violation") and (case.get("indoor_f") or 99) < 58:
         return "emergency_repair"  # HPD's Emergency Repair Program threshold at night
     if case.get("indoor_f") is None or not case.get("address"):
