@@ -263,3 +263,17 @@ def test_followup_choice_is_stored_and_shapes_the_confirmation(api):
     case = hcdb.get_case(texted)
     assert "संदेश" in hc.localized(case, "confirmation")  # Hindi template says "by message"
     assert "कॉल" in hc.localized({**case, "followup": "call"}, "confirmation")
+
+
+def test_close_takes_a_case_off_the_queue_and_reopen_puts_it_back(api):
+    case_id = new_case(api)["case_id"]
+    api.post(f"/api/cases/{case_id}/action", json={"caseworker_action": "schedule_inspection",
+                                                    "caseworker_message_en": "Tuesday 9-12."})
+    assert api.post(f"/api/cases/{case_id}/close").json() == {"ok": True}
+    assert hcdb.get_case(case_id)["status"] == "resolved"
+    # closing twice is harmless and logs once
+    api.post(f"/api/cases/{case_id}/close")
+    closes = [e for e in hcdb.list_events(case_id) if (e["payload"] or {}).get("kind") == "closed"]
+    assert len(closes) == 1 and closes[0]["payload"]["from"] == "callback_requested"
+    assert api.post(f"/api/cases/{case_id}/reopen").json() == {"ok": True}
+    assert hcdb.get_case(case_id)["status"] == "callback_requested"

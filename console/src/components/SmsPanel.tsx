@@ -25,11 +25,11 @@ export function SmsPanel({
 }) {
   const texts = events.filter((e) => e.type === "sms_out" || e.type === "sms_in");
   return (
-    <Card title="Messages · WhatsApp / SMS" aside={<span className="font-mono text-xs text-slate-400">…{phone.slice(-4)}</span>}>
-      <div className="mx-auto max-w-sm rounded-[1.75rem] border-4 border-slate-800 bg-slate-50 p-3">
-        <div className="mb-2 text-center text-[11px] font-semibold text-slate-500">CityLine</div>
+    <Card title="Messages · WhatsApp / SMS" aside={<span className="font-mono text-xs text-zinc-400">…{phone.slice(-4)}</span>}>
+      <div className="mx-auto max-w-sm rounded-[1.75rem] border-4 border-zinc-800 bg-zinc-50 p-3">
+        <div className="mb-2 text-center text-[11px] font-semibold text-zinc-500">CityLine</div>
         <div className="flex max-h-80 min-h-32 flex-col gap-2 overflow-y-auto">
-          {texts.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No messages yet.</p>}
+          {texts.length === 0 && <p className="py-6 text-center text-xs text-zinc-400">No messages yet.</p>}
           {texts.map((e) => {
             const mine = e.type === "sms_in"; // "mine" from the resident's side of the phone
             const status = e.payload?.status as string | undefined;
@@ -38,11 +38,11 @@ export function SmsPanel({
               <div key={e.id} className={`flex flex-col ${fresh.has(e.id) ? "animate-arrive" : ""} ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-snug ${
-                    mine ? "rounded-br-sm bg-blue-900 text-white" : "rounded-bl-sm bg-white text-slate-900 ring-1 ring-slate-200"
+                    mine ? "rounded-br-sm bg-zinc-900 text-white" : "rounded-bl-sm bg-white text-zinc-900 ring-1 ring-zinc-200"
                   }`}
                 >
                   {e.payload?.voice_note === true && (
-                    <div className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${mine ? "text-blue-200" : "text-slate-500"}`}>
+                    <div className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${mine ? "text-zinc-300" : "text-zinc-500"}`}>
                       🎤 Voice note · transcribed by ElevenLabs
                     </div>
                   )}
@@ -50,16 +50,16 @@ export function SmsPanel({
                     <div className="mb-1 text-[10px] font-semibold text-emerald-700">✓ Auto-reply</div>
                   )}
                   {e.payload?.kind === "caseworker" && (
-                    <div className="mb-1 text-[10px] font-semibold text-slate-500">Caseworker</div>
+                    <div className="mb-1 text-[10px] font-semibold text-zinc-500">Caseworker</div>
                   )}
                   {e.text_original ?? e.text_en}
                   {english && (
-                    <div className={`mt-1 border-t pt-1 text-xs ${mine ? "border-blue-700 text-blue-100" : "border-slate-100 text-slate-500"}`}>
+                    <div className={`mt-1 border-t pt-1 text-xs ${mine ? "border-zinc-700 text-zinc-300" : "border-zinc-100 text-zinc-500"}`}>
                       EN: {english}
                     </div>
                   )}
                 </div>
-                <span className="mt-0.5 px-1 text-[10px] text-slate-400">
+                <span className="mt-0.5 px-1 text-[10px] text-zinc-400">
                   {nyClock(e.created_at)}
                   {!mine && status && status !== "sent" && (
                     <span className="ml-1 font-semibold text-amber-700">· {status === "skipped" ? "not sent (Twilio off)" : "not delivered"}</span>
@@ -97,14 +97,14 @@ function TextResident({ caseId, languageLabel }: { caseId: string; languageLabel
 
   return (
     <div className="mt-3 space-y-2">
-      <label className="block text-xs font-medium text-slate-600">
+      <label className="block text-xs font-medium text-zinc-600">
         Text resident · write in English, sent in {languageLabel}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={2}
           placeholder="Is your apartment still cold?"
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-700 focus:outline-none"
+          className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-yellow-400/50"
         />
       </label>
       <div className="flex items-center gap-2">
@@ -112,7 +112,7 @@ function TextResident({ caseId, languageLabel }: { caseId: string; languageLabel
           type="button"
           onClick={send}
           disabled={sending || !text.trim()}
-          className="rounded-lg bg-blue-900 px-3 py-1.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg bg-yellow-400 px-3 py-1.5 text-sm font-semibold text-zinc-950 hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {sending ? "Sending…" : `Send in ${languageLabel}`}
         </button>

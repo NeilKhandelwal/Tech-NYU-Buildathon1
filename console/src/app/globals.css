@@ -6,17 +6,17 @@
   --animate-arrive: arrive 900ms ease-out;
 }
 
-/* new queue rows and events slide in with a brief blue wash */
+/* new queue rows and events slide in with a brief yellow wash */
 @keyframes arrive {
-  0% { transform: translateY(-8px); opacity: 0; background-color: rgb(219 234 254); }
-  40% { transform: translateY(0); opacity: 1; background-color: rgb(219 234 254); }
+  0% { transform: translateY(-8px); opacity: 0; background-color: rgb(254 249 195); }
+  40% { transform: translateY(0); opacity: 1; background-color: rgb(254 249 195); }
   100% { background-color: transparent; }
 }
 
-/* Projector console: light only (DASHBOARD.md "neutral light theme"), so no dark auto-theme */
+/* Projector console: light only, gray/black with a yellow accent, so no dark auto-theme */
 body {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: #f4f4f5;
+  color: #09090b;
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
@@ -29,15 +29,15 @@ body {
   border-radius: 9999px;
   border: 2px solid #fff;
   background: var(--tone);
-  box-shadow: 0 1px 3px rgb(15 23 42 / 0.35);
+  box-shadow: 0 1px 3px rgb(9 9 11 / 0.35);
   cursor: pointer;
   transition: width 200ms ease-out, height 200ms ease-out;
 }
-.pin:focus-visible { outline: 3px solid #1e3a8a; outline-offset: 2px; }
-.pin, .pin-key, .pin--open { --tone: #1e3a8a; }
+.pin:focus-visible { outline: 3px solid #18181b; outline-offset: 2px; }
+.pin, .pin-key, .pin--open { --tone: #18181b; }
 .pin--urgent { --tone: #dc2626; }
-.pin--done { --tone: #94a3b8; }
-.pin--selected { width: 20px; height: 20px; box-shadow: 0 0 0 3px rgb(30 58 138 / 0.25), 0 2px 6px rgb(15 23 42 / 0.4); }
+.pin--done { --tone: #a1a1aa; }
+.pin--selected { width: 20px; height: 20px; box-shadow: 0 0 0 4px rgb(250 204 21 / 0.7), 0 2px 6px rgb(9 9 11 / 0.4); }
 
 .pin::before,
 .pin::after {
@@ -49,12 +49,46 @@ body {
   opacity: 0;
   pointer-events: none;
 }
-/* just filed: three rings drop outward from the building, then it settles */
-.pin--fresh::after { animation: ping 1200ms cubic-bezier(0.16, 1, 0.3, 1) 3; }
-/* a caller is on the line about this case right now */
-.pin--live::before { animation: ping 1800ms cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+/* just filed: four wide rings drop outward from the building, then it settles */
+.pin--fresh::after { border-width: 3px; animation: ping 1500ms cubic-bezier(0.16, 1, 0.3, 1) 4; }
+/* a caller is on the line about this case right now: a steady sonar plus a glowing halo */
+.pin--live::before { animation: ping-wide 2000ms cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+.pin--live { animation: halo 2000ms ease-out infinite; }
+/* the case on screen breathes in the accent, so it is findable at a glance from the back row */
+.pin--selected { animation: breathe 2400ms ease-in-out infinite; }
+.pin--selected.pin--live { animation: breathe 2400ms ease-in-out infinite, halo 2000ms ease-out infinite; }
 
 @keyframes ping {
+  0% { transform: scale(1); opacity: 0.85; }
+  100% { transform: scale(7); opacity: 0; }
+}
+@keyframes ping-wide {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(5.5); opacity: 0; }
+}
+@keyframes halo {
+  0% { filter: drop-shadow(0 0 0 var(--tone)); }
+  50% { filter: drop-shadow(0 0 8px var(--tone)); }
+  100% { filter: drop-shadow(0 0 0 transparent); }
+}
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 4px rgb(250 204 21 / 0.75), 0 2px 6px rgb(9 9 11 / 0.4); }
+  50% { box-shadow: 0 0 0 10px rgb(250 204 21 / 0.2), 0 2px 6px rgb(9 9 11 / 0.4); }
+}
+
+/* the header's Live light: two staggered rings, wide enough to read from the back row */
+.beacon { position: relative; }
+.beacon::before,
+.beacon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: beacon 2200ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+.beacon::after { animation-delay: 1100ms; }
+@keyframes beacon {
   0% { transform: scale(1); opacity: 0.7; }
   100% { transform: scale(4.5); opacity: 0; }
 }
@@ -65,4 +99,5 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pin--fresh::after,
   .pin--live::before { animation: none; opacity: 0.6; transform: scale(2); }
+  .pin--live, .pin--selected, .beacon::before, .beacon::after { animation: none; }
 }

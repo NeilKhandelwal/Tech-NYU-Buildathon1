@@ -353,6 +353,36 @@ async def callback(case_id: str) -> dict:
     return {"ok": True, "conversation_id": conversation_id}
 
 
+@app.post("/api/cases/{case_id}/close")
+def close_case(case_id: str) -> dict:
+    """The caseworker is done: status resolved, the record and its timeline stay.
+
+    Closing is not the "resolved" action. That one calls the resident to say it's fixed;
+    this one takes the case off the open queue, and reopen puts it back where it was."""
+    case = fetch(case_id)
+    if case["status"] == "resolved":
+        return {"ok": True}  # already closed: a double click is not an error
+    hcdb.update_case(case["id"], status="resolved")
+    hcdb.add_event(case["id"], "note", "caseworker", text_en="Case closed by the caseworker",
+                   payload={"kind": "closed", "from": case["status"]})
+    return {"ok": True}
+
+
+@app.post("/api/cases/{case_id}/reopen")
+def reopen_case(case_id: str) -> dict:
+    case = fetch(case_id)
+    if case["status"] != "resolved":
+        return {"ok": True}
+    # back to the status it was closed from; a case seeded as resolved has none, so review it
+    closes = [e for e in hcdb.list_events(case["id"])
+              if e["type"] == "note" and (e["payload"] or {}).get("kind") == "closed"]
+    back = (closes[-1]["payload"].get("from") if closes else None) or "in_review"
+    hcdb.update_case(case["id"], status=back)
+    hcdb.add_event(case["id"], "note", "caseworker", text_en="Case reopened by the caseworker",
+                   payload={"kind": "reopened", "to": back})
+    return {"ok": True}
+
+
 class CaseworkerText(BaseModel):
     text_en: str
 
