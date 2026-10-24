@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import textwrap
+from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
@@ -358,6 +359,8 @@ def env(name: str) -> str:
 
 def main() -> None:
     load_dotenv(".env")
+    # the API key lives once, in backend/.env (where the backend reads it); never overrides agent/.env
+    load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
     base_url, secret = env("PUBLIC_BACKEND_URL"), env("VOICE_TOOL_SECRET")
     with httpx.Client(base_url=API, headers={"xi-api-key": env("ELEVENLABS_API_KEY")},
                       timeout=30) as client:
