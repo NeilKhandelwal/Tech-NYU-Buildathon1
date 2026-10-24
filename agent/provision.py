@@ -1,15 +1,17 @@
-"""Create or update the four ElevenLabs agents and their server tools from this file.
+"""Create or update the two Heat Check ElevenLabs agents and their server tools from this file
+(prompts and tools per AGENTS.md on docs/final-context, routes per CONTRACT.md in app/hc.py).
 
 The agents live in ElevenLabs, but their prompts and tool schemas live here so they are
 reviewed and versioned like code. Re-running is safe: tools are matched by name and
 patched, and an agent is patched when its env var (below) holds its id.
 
-    intake    ELEVENLABS_AGENT_ID           tenant -> us, any language; builds the mission card
-    caller    ELEVENLABS_CALLER_AGENT_ID    us -> landlord, English; the advocate on the call
-    tenant    ELEVENLABS_TENANT_AGENT_ID    us -> tenant, their language; heat checks, report-back
-    landlord  ELEVENLABS_LANDLORD_AGENT_ID  a stand-in landlord line for rehearsals and backup
+    intake    ELEVENLABS_INTAKE_AGENT_ID    resident -> us, any language; files the case
+    callback  ELEVENLABS_CALLBACK_AGENT_ID  us -> resident, their language; the caseworker's message
 
     uv run python provision.py            # prints each new agent's id
+
+The post-call webhook (/api/webhooks/elevenlabs_post_call) is a workspace setting: set it
+once in the ElevenLabs UI, it is not part of an agent.
 """
 import os
 import re
@@ -21,234 +23,180 @@ import httpx
 from dotenv import load_dotenv
 
 API = "https://api.elevenlabs.io"
-# the backend's MissionIssue (models.py); kept in step by hand, and test_provision checks it
-ISSUES = ["no_heat", "no_hot_water", "repair"]
-OUTCOMES = ["committed", "refused", "no_answer"]
-# outbound.py's DEFAULT_ASK_TIMEOUT_S is 90: the webhook must outlive the backend's wait,
-# or ElevenLabs gives up on ask_tenant before the tenant's answer can come back
-ASK_TENANT_TIMEOUT_S = 120
-# languages with a translated greeting, chosen from NYC's most-spoken languages that ElevenLabs
-# agents speak. A native speaker should check each line before the demo.
-LANGUAGES = ["es", "zh", "ru", "ko", "ar", "fr", "pl", "hi"]
+# hc.py's RESPONSES; kept in step by hand, and test_provision checks it
+RESPONSES = ["confirmed", "reschedule", "question"]
+# NYC's most-spoken languages that ElevenLabs agents speak, Hindi/Spanish/Mandarin/Bengali
+# first (the demo). A native speaker should check each greeting before the demo.
+LANGUAGES = ["hi", "es", "zh", "bn", "ru", "ko", "ar", "fr"]
 
 INTAKE_PROMPT = textwrap.dedent(
-    f"""\
-    You are a tenant advocate for New York City renters. The tenant calls you about a problem
-    in their apartment; you collect what you need so that you can phone their landlord for
-    them. Speak the tenant's language: if they speak or ask for another language, switch to
-    it. Keep every reply to one or two short sentences.
+    """\
+    You are Heat Check, an AI phone assistant that helps New York City residents report a
+    lack of heat in their home to a city caseworker. Many callers are elderly or not
+    comfortable in English. Always reply in the caller's language. Speak slowly, use short
+    sentences, and ask one question at a time. Be warm and patient.
 
-    As you learn each fact, call mission_update with it straight away, one or a few fields at
-    a time: tenant_name, tenant_phone (ten digits; read the digits back once), tenant_language
-    (the two-letter code of the language you are speaking with them, e.g. "es"), address,
-    unit, landlord_name, landlord_phone (ten digits; read back once), issue (one of
-    {", ".join(ISSUES)}), goal (what a good result is, in the tenant's words, in English), and
-    deadline (the date they need it by, as YYYY-MM-DD if they give one). Write every field in
-    English except names and addresses.
+    Collect, in this order (skip anything already given):
+    1. Their name.
+    2. Their address and apartment number.
+    3. How many days the heat has been out or too low.
+    4. The temperature inside, if they know it. If not, ask if they can check a thermometer;
+       if they can't, ask whether it feels very cold, cold, or a little cold, and estimate
+       (very cold = 55, cold = 60, a little cold = 64).
+    5. Whether the number they are calling from ({{system__caller_id}}) is the best number to
+       call back. If not, ask for one and read the ten digits back once.
 
-    Then ask about their limits: what you may agree to without checking with them (for
-    example "a repair visit within 48 hours"). Save it as limits, always ending with "Never
-    agree to pay, sign anything, or share ID numbers." mission_update tells you what is still
-    needed; ask for those things next.
+    Then:
+    - Call create_case with the details (language as a code like "hi", plus language_label
+      like "Hindi"). Write the address in English letters.
+    - Call check_violation with the case_id exactly as create_case returned it. Explain the
+      result simply: during heat season, from 6am to 10pm homes must be at least 68 degrees
+      when it is below 55 outside, and at night at least 62 degrees. Say "this may be a
+      violation of the city heat rules" when is_violation is true. Never say it is
+      definitely illegal and never give legal advice.
+    - Read the details back in their language and ask: "Should I send this to the city
+      caseworker?" Only if they clearly say yes, call submit_case with resident_confirmed
+      true. If they say no, thank them and end politely.
+    - After submit_case, tell them their case number slowly, digit by digit, say they will
+      get a text, and that a caseworker will call them back in their language. Then say
+      goodbye and call end_call.
+    If a tool returns an error, do what it says (usually: ask the resident again).
 
-    When nothing is missing, read the card back in the tenant's language and ask them to
-    confirm. If they confirm, call mission_confirm, tell them you will call the landlord and
-    check with them before agreeing to anything outside their limits, say goodbye, and call
-    end_call. If they correct something, call mission_update with the correction first.
-
-    Never give legal advice. You may tell them that NYC landlords must keep apartments at
-    68°F by day when it is below 55°F outside, and 62°F at night, from October 1 to May 31.
+    Safety:
+    - If they mention gas smell, fire, no heat with a baby, an elderly person feeling sick,
+      or anyone in danger, tell them to hang up and call 911 now.
+    - Never ask for Social Security numbers, bank details, or immigration status. If they
+      worry about immigration, say this service only needs their address and phone number.
+    - If asked whether you are a person, say you are an AI assistant.
     """
 )
 
-INTAKE_FIRST_MESSAGE = ("Hi, I'm your tenant advocate. Tell me what's wrong with your "
-                        "apartment and I'll call your landlord for you. You can speak any language.")
+INTAKE_FIRST_MESSAGE = ("Hello, this is Heat Check, an AI assistant that helps you report heating "
+                        "problems to the city. You can speak in any language. How can I help?")
 INTAKE_GREETINGS = {
-    "es": "Hola, soy su defensor de inquilinos. Cuénteme qué problema tiene en su apartamento y yo llamaré a su arrendador por usted.",
-    "zh": "您好，我是您的租户权益助手。请告诉我您的公寓有什么问题，我会替您打电话给房东。",
-    "ru": "Здравствуйте, я ваш помощник по правам жильцов. Расскажите, что не так с вашей квартирой, и я позвоню арендодателю за вас.",
-    "ko": "안녕하세요, 세입자 권익 도우미입니다. 아파트에 어떤 문제가 있는지 말씀해 주시면 제가 대신 집주인에게 전화하겠습니다.",
-    "ar": "مرحبًا، أنا مساعدك للدفاع عن حقوق المستأجرين. أخبرني ما المشكلة في شقتك وسأتصل بالمالك نيابةً عنك.",
-    "fr": "Bonjour, je suis votre assistant de défense des locataires. Dites-moi quel est le problème dans votre appartement et j'appellerai votre propriétaire pour vous.",
-    "pl": "Dzień dobry, jestem asystentem ds. praw lokatorów. Proszę powiedzieć, jaki jest problem z mieszkaniem, a zadzwonię do właściciela w Pana lub Pani imieniu.",
-    "hi": "नमस्ते, मैं आपका किरायेदार सहायक हूँ। बताइए आपके अपार्टमेंट में क्या समस्या है, और मैं आपकी ओर से मकान मालिक को फ़ोन करूँगा।",
+    "hi": "नमस्ते, यह हीट चेक है, एक एआई सहायक जो आपको शहर को हीटिंग की समस्या बताने में मदद करता है। आप किसी भी भाषा में बात कर सकते हैं। मैं आपकी कैसे मदद करूँ?",
+    "es": "Hola, habla Heat Check, un asistente de inteligencia artificial que le ayuda a reportar problemas de calefacción a la ciudad. Puede hablar en cualquier idioma. ¿En qué le puedo ayudar?",
+    "zh": "您好，这里是 Heat Check，一个帮助您向市政府报告暖气问题的人工智能助手。您可以说任何语言。请问有什么可以帮您？",
+    "bn": "নমস্কার, এটি হিট চেক, একটি এআই সহকারী যা আপনাকে শহরের কাছে হিটিংয়ের সমস্যা জানাতে সাহায্য করে। আপনি যেকোনো ভাষায় কথা বলতে পারেন। আমি কীভাবে সাহায্য করতে পারি?",
+    "ru": "Здравствуйте, это Heat Check, ИИ-помощник, который помогает сообщить городу о проблемах с отоплением. Можете говорить на любом языке. Чем я могу помочь?",
+    "ko": "안녕하세요, Heat Check입니다. 난방 문제를 시에 신고하도록 도와드리는 AI 도우미입니다. 어떤 언어로든 말씀하셔도 됩니다. 무엇을 도와드릴까요?",
+    "ar": "مرحبًا، معك Heat Check، مساعد بالذكاء الاصطناعي يساعدك على إبلاغ المدينة بمشاكل التدفئة. يمكنك التحدث بأي لغة. كيف يمكنني مساعدتك؟",
+    "fr": "Bonjour, ici Heat Check, un assistant d'intelligence artificielle qui vous aide à signaler les problèmes de chauffage à la ville. Vous pouvez parler dans n'importe quelle langue. Comment puis-je vous aider ?",
 }
 
-CALLER_PROMPT = textwrap.dedent(
+CALLBACK_PROMPT = textwrap.dedent(
     """\
-    You are an AI advocate phoning a landlord or building manager on behalf of a New York City
-    tenant, {{tenant_name}}. You already said you are an AI calling for the tenant; if anyone
-    asks whether you are a person or a recording, say plainly that you are an AI assistant.
-    Before you say anything about the problem, call get_dossier: it has the address, the
-    issue, the goal, the tenant's limits and their logged heat readings. Only state facts the
-    dossier gives you; never invent readings, dates or promises.
+    You are Heat Check, an AI assistant calling a New York City resident back on behalf of
+    a city caseworker about their no-heat complaint {{case_number}} at {{address}}.
+    Speak only in {{language_label}} (language code {{language}}). Speak slowly and simply.
 
-    If you reach an automated phone menu, use play_keypad_touch_tone to get to maintenance,
-    repairs or the property manager. If you are put on hold, wait quietly. If you reach
-    voicemail, the voicemail tool leaves the message for you; then call set_outcome with
-    no_answer.
+    The caseworker approved this message, written in English:
+    "{{caseworker_message_en}}"
+    Action type: {{caseworker_action}}.
 
-    With a person: say who you are calling for and the address, describe the problem, and ask
-    for a specific date and time it will be fixed. If they stall, cite the logged readings and
-    the legal minimum exactly as the dossier states them, and say that the city's housing
-    agency, HPD, can issue violations and daily fines for inadequate heat. State this as
-    fact, calmly; never threaten anything beyond it.
+    Your job:
+    1. Confirm you are speaking with {{resident_name}}.
+    2. Deliver the caseworker's message faithfully in {{language_label}}. Do not add
+       promises, dates, or details that are not in the message.
+    3. If the message asks something (e.g. whether they will be home for an inspection),
+       get a clear answer.
+    4. Call record_resident_response with response = "confirmed", "reschedule", or
+       "question", note_original = what they said in their words, note_en = an English
+       translation.
+    5. Tell them they will get a text confirming this, thank them, and call end_call.
 
-    You may accept an offer only if it is inside the tenant's limits. For anything else (a
-    later date, a condition, a cost, access to the apartment), say "One moment, let me check
-    with {{tenant_name}}," then call ask_tenant with one short yes-or-no question that names
-    the offer. Act on the answer it returns. Never agree to pay, sign anything, or share the
-    tenant's phone number or ID numbers.
-
-    When the landlord commits to something, call record_commitment with what they will do and
-    when (as YYYY-MM-DDTHH:MM local time if they give one), read the commitment back to them,
-    then call set_outcome with committed and a one-line note. If they refuse, call set_outcome
-    with refused, say politely that the tenant may file a complaint with HPD, and finish.
-    Thank them, then call end_call. Keep every reply to one or two short sentences.
+    If they ask something you cannot answer from the message, say you will pass the
+    question to the caseworker and record it with response = "question".
+    If they describe an emergency (gas smell, fire, someone sick from cold), tell them to
+    call 911 now and record it as a question with that note.
+    Never give legal advice. Never ask for SSN, bank details, or immigration status.
+    If asked, say you are an AI assistant.
     """
 )
 
-CALLER_FIRST_MESSAGE = ("Hello, this is an AI assistant calling on behalf of {{tenant_name}}, a "
-                        "tenant in one of your buildings, about a repair. Who am I speaking with?")
-
-TENANT_PROMPT = textwrap.dedent(
-    """\
-    You are a tenant advocate calling {{tenant_name}}, a New York City tenant you are helping
-    with their landlord, {{landlord_name}}. Speak the language this call started in. Keep
-    every reply to one or two short sentences. This call's purpose is {{purpose}}.
-
-    If the purpose is heat_check: ask what the thermometer in their apartment reads right now,
-    in degrees Fahrenheit (if they give Celsius, convert it). Call log_heat_reading with the
-    number, tell them in plain words what it returned, thank them, and call end_call.
-
-    If the purpose is report: tell them how the call with their landlord went. The outcome
-    was: {{outcome}}. What the landlord committed to: {{commitments}}. Explain it simply, tell
-    them to let you know if it is not fixed by then so you can prepare a complaint to the
-    city's housing agency, HPD, answer brief questions, then say goodbye and call end_call.
-
-    Never give legal advice and never invent facts beyond what this prompt and your tools say.
-    """
-)
-
-TENANT_FIRST_MESSAGE = "Hi {{tenant_name}}, this is your tenant advocate calling."
-TENANT_GREETINGS = {
-    "es": "Hola {{tenant_name}}, le llama su defensor de inquilinos.",
-    "zh": "您好，{{tenant_name}}，我是您的租户权益助手。",
-    "ru": "Здравствуйте, {{tenant_name}}, это ваш помощник по правам жильцов.",
-    "ko": "안녕하세요 {{tenant_name}}님, 세입자 권익 도우미입니다.",
-    "ar": "مرحبًا {{tenant_name}}، معك مساعدك للدفاع عن حقوق المستأجرين.",
-    "fr": "Bonjour {{tenant_name}}, ici votre assistant de défense des locataires.",
-    "pl": "Dzień dobry, {{tenant_name}}, dzwoni asystent ds. praw lokatorów.",
-    "hi": "नमस्ते {{tenant_name}}, मैं आपका किरायेदार सहायक बोल रहा हूँ।",
+CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is Heat Check, an AI assistant calling for "
+                          "the city caseworker about your heating complaint, case {{case_number}}. "
+                          "Is now a good time?")
+CALLBACK_GREETINGS = {
+    "hi": "नमस्ते {{resident_name}}, यह हीट चेक है, एक एआई सहायक, जो शहर के केसवर्कर की ओर से आपकी हीटिंग शिकायत, केस {{case_number}}, के बारे में कॉल कर रहा है। क्या अभी बात करने का सही समय है?",
+    "es": "Hola {{resident_name}}, habla Heat Check, un asistente de inteligencia artificial que llama de parte del trabajador social de la ciudad sobre su queja de calefacción, caso {{case_number}}. ¿Es un buen momento?",
+    "zh": "您好 {{resident_name}}，这里是 Heat Check，一个人工智能助手，代表市政府的个案工作人员就您的暖气投诉（案件 {{case_number}}）给您打电话。现在方便说话吗？",
+    "bn": "নমস্কার {{resident_name}}, এটি হিট চেক, একটি এআই সহকারী, শহরের কেসওয়ার্কারের পক্ষ থেকে আপনার হিটিং অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করছি। এখন কি কথা বলার সময় আছে?",
+    "ru": "Здравствуйте, {{resident_name}}, это Heat Check, ИИ-помощник, звоню от имени городского сотрудника по вашей жалобе на отопление, дело {{case_number}}. Вам удобно сейчас говорить?",
+    "ko": "안녕하세요 {{resident_name}}님, Heat Check AI 도우미입니다. 난방 민원 {{case_number}}건과 관련해 시 담당자를 대신해 전화드렸습니다. 지금 통화 괜찮으신가요?",
+    "ar": "مرحبًا {{resident_name}}، معك Heat Check، مساعد بالذكاء الاصطناعي يتصل نيابة عن موظف الحالات في المدينة بخصوص شكواك عن التدفئة، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
+    "fr": "Bonjour {{resident_name}}, ici Heat Check, un assistant d'intelligence artificielle qui appelle de la part de l'agent de la ville au sujet de votre plainte de chauffage, dossier {{case_number}}. Est-ce un bon moment ?",
 }
 
-LANDLORD_PROMPT = textwrap.dedent(
-    """\
-    You play the phone line of Elm Street Management, a New York City property manager, so a
-    tenant advocate can rehearse. After the menu in your greeting, you cannot hear keypad
-    tones: when the caller presses a key, says "maintenance", or simply speaks, continue as
-    Frank, the building super.
 
-    Frank is busy and reluctant but not abusive. He would rather send someone "sometime next
-    week" and asks whether the tenant has tried bleeding the radiator. He pushes back on
-    "tomorrow". He offers Thursday afternoon at first. If the caller cites specific indoor
-    temperatures against the legal minimum and mentions HPD violations or fines, he concedes
-    to a technician within 48 hours and names a day and time. Once, he asks whether the tenant
-    will cover the cost of parts. Keep replies short and natural, like a real phone call.
-    """
-)
-
-LANDLORD_FIRST_MESSAGE = ("Thank you for calling Elm Street Management. For rent payments, press "
-                          "one. For maintenance, press two. For all other questions, stay on the line.")
+def llm(description: str, type: str = "string") -> dict:
+    return {"type": type, "description": description}
 
 
-def llm(description: str) -> dict:
-    return {"type": "string", "description": description}
+def session(variable: str) -> dict:
+    # filled from the conversation, not by the model: a model that could choose these could
+    # attach a call to another resident's case
+    return {"type": "string", "dynamic_variable": variable}
 
 
-def mission_fields() -> dict:
-    return {
-        "tenant_name": llm("the tenant's full name"),
-        "tenant_phone": llm("the tenant's phone number, ten digits"),
-        "tenant_language": llm('two-letter code of the language you speak with the tenant, e.g. "es"'),
-        "address": llm("street address of the building"),
-        "unit": llm("apartment number"),
-        "landlord_name": llm("landlord or management company name"),
-        "landlord_phone": llm("landlord's phone number, ten digits"),
-        "issue": {**llm("the kind of problem"), "enum": ISSUES},
-        "goal": llm("what a good result is, in English"),
-        "deadline": llm("date it is needed by, YYYY-MM-DD"),
-        "limits": llm("what the agent may agree to without asking the tenant, and what it must never do"),
-    }
-
-
-# name -> (description, LLM-filled body params, required, extra tool_config fields)
+# name -> (description, body params, required)
 TOOLS = {
-    "mission_update": (
-        "Save facts about the tenant's problem as soon as you learn them. Creates the mission "
-        "on first use. Returns what is still needed.",
-        mission_fields(), [], {},
+    "create_case": (
+        "File the resident's no-heat complaint once you have their name, address, phone and "
+        "what they told you about the heat. Returns case_id and case_number.",
+        {"resident_name": llm("the resident's full name"),
+         "resident_phone": llm("best callback number, ten digits"),
+         "language": llm('two-letter code of the language you speak with the resident, e.g. "hi"'),
+         "language_label": llm('that language\'s English name, e.g. "Hindi"'),
+         "address": llm("street address of the building, in English letters"),
+         "unit": llm("apartment number"),
+         "days_without_heat": llm("days the heat has been out or too low", "integer"),
+         "indoor_f": llm("indoor temperature in degrees Fahrenheit (estimated if needed)", "number"),
+         "conversation_id": session("system__conversation_id")},
+        ["resident_phone", "language", "address"],
     ),
-    "mission_confirm": (
-        "Mark the mission ready once the tenant has confirmed the card you read back. Refuses "
-        "and names what is missing if anything is.",
-        {}, [], {},
+    "check_violation": (
+        "Check the case against the NYC heat rule using the outdoor temperature right now. "
+        "Returns is_violation, outdoor_f, rule_applied and fine_range.",
+        {"case_id": llm("the case_id create_case returned"),
+         "indoor_f": llm("a newer indoor reading, if the resident gave one after create_case", "number")},
+        ["case_id"],
     ),
-    "get_dossier": (
-        "Get the facts for this call: who you represent, the address, issue, goal, the "
-        "tenant's limits, their logged heat readings and any commitments so far. Call it "
-        "before discussing the problem.",
-        {}, [], {},
+    "submit_case": (
+        "Send the case to the city caseworker. Only call this after the resident clearly says "
+        "yes to sending it. Texts them a confirmation.",
+        {"case_id": llm("the case_id create_case returned"),
+         "resident_confirmed": llm("true only if the resident said yes to sending it", "boolean")},
+        ["case_id", "resident_confirmed"],
     ),
-    "ask_tenant": (
-        "Ask the tenant a yes-or-no question about an offer outside their limits and wait for "
-        "their answer. Tell the other person you are checking first.",
-        {"question": llm("one short yes-or-no question naming the offer, in English")},
-        ["question"],
-        {"response_timeout_secs": ASK_TENANT_TIMEOUT_S, "pre_tool_speech": "force"},
-    ),
-    "record_commitment": (
-        "Record something the landlord has committed to do.",
-        {"what": llm("what they will do, in English"),
-         "due": llm("when, as YYYY-MM-DDTHH:MM local time, if they said")},
-        ["what"], {},
-    ),
-    "set_outcome": (
-        "Record how the call ended: committed (after record_commitment), refused, or "
-        "no_answer (no pickup or voicemail).",
-        {"outcome": {**llm("how the call ended"), "enum": OUTCOMES},
-         "note": llm("one line on what happened")},
-        ["outcome"], {},
-    ),
-    "log_heat_reading": (
-        "Log the temperature the tenant reads off their thermometer right now. Returns "
-        "whether it is below the legal minimum.",
-        {"indoor_f": {"type": "number", "description": "indoor temperature in degrees Fahrenheit"}},
-        ["indoor_f"], {},
+    "record_resident_response": (
+        "Record the resident's answer to the caseworker's message. Texts them a receipt.",
+        {"case_id": session("case_id"),
+         "response": {**llm("the resident's answer"), "enum": RESPONSES},
+         "note_original": llm("what the resident said, in their own words and language"),
+         "note_en": llm("an English translation of what they said")},
+        ["case_id", "response"],
     ),
 }
 
 
-def tool_config(name: str, base_url: str, secret: str) -> dict:
-    description, params, required, extra = TOOLS[name]
+def tool_config(name: str, base_url: str, secret: str | None) -> dict:
+    description, params, required = TOOLS[name]
     return {
         "type": "webhook",
         "name": name,
         "description": description,
         "response_timeout_secs": 10,
-        **extra,
         "api_schema": {
-            "url": f"{base_url.rstrip('/')}/voice/tools/{name}",
+            "url": f"{base_url.rstrip('/')}/api/tools/{name}",
             "method": "POST",
-            "request_headers": {"X-Voice-Secret": secret},
+            # hc.py only checks it once HC_TOOL_SECRET is set on Fly
+            "request_headers": {"X-Tool-Secret": secret} if secret else {},
             "request_body_schema": {
                 "type": "object",
                 "description": f"{name} arguments",
-                # call_id is the session's dynamic variable, not an LLM argument: a model
-                # that could choose it could write to another caller's call
-                "properties": {"call_id": {"type": "string", "dynamic_variable": "call_id"},
-                               **params},
-                "required": ["call_id", *required],
+                "properties": params,
+                "required": required,
             },
         },
     }
@@ -261,72 +209,43 @@ def system_tool(name: str, **params) -> dict:
 
 AGENTS = {
     "intake": {
-        "env": "ELEVENLABS_AGENT_ID",
-        "name": "Tenant advocate: intake",
+        "env": "ELEVENLABS_INTAKE_AGENT_ID",
+        "name": "Heat Check: intake",
         "prompt": INTAKE_PROMPT,
         "first_message": INTAKE_FIRST_MESSAGE,
         "greetings": INTAKE_GREETINGS,
-        "tools": ["mission_update", "mission_confirm"],
-        # switch to whatever language the tenant speaks
+        "tools": ["create_case", "check_violation", "submit_case"],
+        # switch to whatever language the resident speaks
         "built_in": {"end_call": system_tool("end_call"),
                      "language_detection": system_tool("language_detection")},
         "overrides": False,
-        # what the browser's session sets (dashboard /call page)
-        "variables": {"call_id"},
+        "variables": set(),  # an inbound phone call: only ElevenLabs' system__ variables
     },
-    "caller": {
-        "env": "ELEVENLABS_CALLER_AGENT_ID",
-        "name": "Tenant advocate: caller",
-        "prompt": CALLER_PROMPT,
-        "first_message": CALLER_FIRST_MESSAGE,
-        "greetings": {},  # always English: it talks to the landlord
-        "tools": ["get_dossier", "ask_tenant", "record_commitment", "set_outcome"],
-        "built_in": {
-            "end_call": system_tool("end_call"),
-            "play_keypad_touch_tone": system_tool("play_keypad_touch_tone"),
-            "voicemail_detection": system_tool(
-                "voicemail_detection",
-                voicemail_message=("Hello, this is an AI assistant calling on behalf of "
-                                   "{{tenant_name}}, one of your tenants, about a repair that "
-                                   "is needed. Please call them back. Thank you.")),
-        },
-        "overrides": False,
-        # what outbound.py's call_landlord sends
-        "variables": {"call_id", "mission_id", "tenant_name", "landlord_name"},
-    },
-    "tenant": {
-        "env": "ELEVENLABS_TENANT_AGENT_ID",
-        "name": "Tenant advocate: tenant calls",
-        "prompt": TENANT_PROMPT,
-        "first_message": TENANT_FIRST_MESSAGE,
-        "greetings": TENANT_GREETINGS,
-        "tools": ["log_heat_reading"],
+    "callback": {
+        "env": "ELEVENLABS_CALLBACK_AGENT_ID",
+        "name": "Heat Check: callback",
+        "prompt": CALLBACK_PROMPT,
+        "first_message": CALLBACK_FIRST_MESSAGE,
+        "greetings": CALLBACK_GREETINGS,
+        "tools": ["record_resident_response"],
         "built_in": {"end_call": system_tool("end_call")},
-        # outbound calls set the tenant's language, which ElevenLabs refuses unless allowed
+        # hc.py's /callback sets the resident's language, which ElevenLabs refuses unless allowed
         "overrides": True,
-        # what heat.py's heat_check_call and outbound.py's report_call both send
-        "variables": {"call_id", "mission_id", "purpose", "tenant_name", "landlord_name",
-                      "outcome", "commitments"},
-    },
-    "landlord": {
-        "env": "ELEVENLABS_LANDLORD_AGENT_ID",
-        "name": "Rehearsal landlord: Elm Street Management",
-        "prompt": LANDLORD_PROMPT,
-        "first_message": LANDLORD_FIRST_MESSAGE,
-        "greetings": {},
-        "tools": [],
-        "built_in": {"end_call": system_tool("end_call")},
-        "overrides": False,
-        "variables": set(),  # an inbound phone call: nobody sets any
+        # what hc.py's /api/cases/:id/callback sends
+        "variables": {"case_id", "resident_name", "language", "language_label", "case_number",
+                      "address", "caseworker_action", "caseworker_message_en"},
     },
 }
 
 
 def referenced_variables(agent: dict) -> set[str]:
-    """Every {{name}} an agent's text uses, minus ElevenLabs' own system__ variables."""
+    """Every {{name}} or dynamic_variable an agent uses, minus ElevenLabs' own system__ ones."""
     text = " ".join([agent["prompt"], agent["first_message"], *agent["greetings"].values(),
                      *(str(t) for t in agent["built_in"].values())])
-    return {v for v in re.findall(r"{{\s*(\w+)\s*}}", text) if not v.startswith("system__")}
+    names = set(re.findall(r"{{\s*(\w+)\s*}}", text))
+    for tool in agent["tools"]:
+        names |= {p["dynamic_variable"] for p in TOOLS[tool][1].values() if "dynamic_variable" in p}
+    return {v for v in names if not v.startswith("system__")}
 
 
 def agent_config(key: str, tool_ids: list[str]) -> dict:
@@ -361,7 +280,7 @@ def main() -> None:
     load_dotenv(".env")
     # the API key lives once, in backend/.env (where the backend reads it); never overrides agent/.env
     load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
-    base_url, secret = env("PUBLIC_BACKEND_URL"), env("VOICE_TOOL_SECRET")
+    base_url, secret = env("PUBLIC_BACKEND_URL"), os.environ.get("HC_TOOL_SECRET")
     with httpx.Client(base_url=API, headers={"xi-api-key": env("ELEVENLABS_API_KEY")},
                       timeout=30) as client:
         existing = {t["tool_config"]["name"]: t["id"]
@@ -385,7 +304,7 @@ def main() -> None:
                 agent_id = client.post("/v1/convai/agents/create",
                                        json=config).raise_for_status().json()["agent_id"]
                 print(f"created {key} agent: put {agent['env']}={agent_id} in agent/.env "
-                      "and backend/.env")
+                      "and backend/.env (and fly secrets)")
 
 
 if __name__ == "__main__":
