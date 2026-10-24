@@ -316,7 +316,16 @@ Heat (`heat.py`):
 Outbound (`outbound.py`):
 - `POST /missions/{id}/call` → 201 Call (kind outbound). 409 unless status is `ready` (or a
   terminal status from a previous attempt: committed/refused/no_answer). 503 if ElevenLabs
-  isn't configured — and no call row is created then. Status → calling. Starts the live relay.
+  isn't configured (nothing is written), 502 if the dial fails. Status → calling, outcome
+  cleared. Starts the live relay.
+- **Every outbound dial** (this, heat-check, report) inserts its call row first — the agent
+  needs `{{call_id}}` at dial time — broadcasts it only after the dial succeeds, and deletes
+  it on any dial failure.
+- **Dynamic variables sent:** landlord call `call_id, mission_id, tenant_name,
+  landlord_name`; heat-check and report calls (one tenant agent) both send `call_id,
+  mission_id, purpose (heat_check|report), tenant_name, landlord_name, outcome,
+  commitments` — ElevenLabs refuses a conversation missing any variable the prompt names.
+  `agent/tests/test_provision.py` checks the prompts against these sets.
 - `GET /missions/{id}/questions` → [TenantQuestion]. `POST /missions/{id}/questions/{qid}/answer`
   {answer} → TenantQuestion (answer may be in any language; stored as given, translated to
   English for the agent when translation is on). 409 if not pending.
@@ -339,11 +348,17 @@ Outbound (`outbound.py`):
   `ASK_TENANT_TIMEOUT_S` (default 90) for the tenant's answer and returns it (in English), or
   "The tenant hasn't answered yet; say you'll confirm with them and follow up." on timeout
   (question → expired); status is waiting_on_tenant while it waits; `record_commitment`
-  {call_id, what, due?}; `set_outcome` {call_id, outcome: committed|refused|no_answer, note}.
+  {call_id, what, due?}; `set_outcome` {call_id, outcome: committed|refused|no_answer, note}
+  — `committed` is refused until a commitment is recorded. `ask_tenant`'s webhook timeout in
+  ElevenLabs must exceed `ASK_TENANT_TIMEOUT_S` (provision.py sets 120).
 
 ### ElevenLabs config (env)
 `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID` (intake), `ELEVENLABS_CALLER_AGENT_ID`,
-`ELEVENLABS_TENANT_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID` (the imported Twilio number),
+`ELEVENLABS_TENANT_AGENT_ID`, `ELEVENLABS_LANDLORD_AGENT_ID` (rehearsal landlord, inbound on a
+second number), `ELEVENLABS_PHONE_NUMBER_ID` (the imported Twilio number),
 `VOICE_TOOL_SECRET`, `ELEVENLABS_WEBHOOK_SECRET`. Outbound calls go through
 `elevenlabs.outbound_call(agent_id, to_number, dynamic_variables, language=None) -> conversation_id`.
-Translation (`translate.py`) is optional: `GEMINI_API_KEY` unset means `translated` stays null.
+Translation (`translate.py`) is optional: `GEMINI_API_KEY` unset means `translated` stays null;
+`GEMINI_MODEL` picks the model. Live subtitles need ElevenLabs real-time monitoring
+(Enterprise or the `realtime-monitoring` flag); without it the post-call webhook still backfills
+the transcript.
