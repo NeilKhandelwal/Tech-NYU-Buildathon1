@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AGENT_LABEL, elapsed, type Call } from "@/lib/calls";
 import { COMPLAINT_LABEL, complaintOf, isHeat, type Case, type ComplaintType } from "@/lib/types";
-import { ago, borough, isOpen, nyClock, queueOrder } from "@/lib/format";
+import { ago, borough, isOpen, nyClock, parseTime, queueOrder } from "@/lib/format";
 import { IssueBadge, LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
 
 const FILTERS = {
@@ -14,6 +14,14 @@ const FILTERS = {
   resolved: { label: "Resolved", keep: (c: Case) => c.status === "resolved" },
 } satisfies Record<string, { label: string; keep: (c: Case) => boolean }>;
 type Filter = keyof typeof FILTERS;
+
+// Urgency is the default triage order (urgent, then high, newest first within each);
+// call time is plain newest first, for "what just came in".
+const SORTS = {
+  urgency: { label: "Urgency", order: queueOrder },
+  time: { label: "Call time", order: (a: Case, b: Case) => parseTime(b.created_at) - parseTime(a.created_at) },
+} satisfies Record<string, { label: string; order: (a: Case, b: Case) => number }>;
+type Sort = keyof typeof SORTS;
 
 export type Selection = { kind: "case" | "call"; id: string } | null;
 
@@ -31,10 +39,11 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
   const [folded, setFolded] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [issue, setIssue] = useState<ComplaintType | "all">("all");
+  const [sort, setSort] = useState<Sort>("urgency");
   const shown = cases
     .filter(FILTERS[filter].keep)
     .filter((c) => issue === "all" || complaintOf(c) === issue)
-    .sort(queueOrder);
+    .sort(SORTS[sort].order);
   const live = calls.filter((c) => c.live);
   const byId = new Map(cases.map((c) => [c.id, c]));
 
@@ -128,6 +137,24 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
                 <option key={t} value={t}>{COMPLAINT_LABEL[t]}</option>
               ))}
             </select>
+            <div className="mt-2 flex w-full items-center gap-2">
+              <span id="sort-label" className="text-xs text-zinc-500">Sort by</span>
+              <div role="radiogroup" aria-labelledby="sort-label" className="flex rounded-md bg-zinc-100 p-0.5">
+                {(Object.keys(SORTS) as Sort[]).map((k) => (
+                  <button
+                    key={k}
+                    role="radio"
+                    aria-checked={sort === k}
+                    onClick={() => setSort(k)}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                      sort === k ? "bg-white text-zinc-950 shadow-[0_1px_2px_rgb(9_9_11/0.15)]" : "text-zinc-600 hover:text-zinc-900"
+                    }`}
+                  >
+                    {SORTS[k].label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <ol className="flex-1 overflow-y-auto border-t border-zinc-100">
             {shown.map((c) => (
