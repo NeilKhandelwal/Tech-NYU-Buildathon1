@@ -34,7 +34,7 @@ def mock_http(monkeypatch, module, handler):
 
 
 def no_llm(monkeypatch):
-    for k in ("XAI_API_KEY", "GEMINI_API_KEY"):
+    for k in ("XAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.delenv(k, raising=False)
 
 
@@ -170,3 +170,66 @@ def test_lookup_failure_is_not_found(monkeypatch):
     mock_http(monkeypatch, building, lambda r: httpx.Response(503))
     out = asyncio.run(building.building_lookup("11 Main St"))
     assert (out["found"], out["source"]) == (False, "none")
+
+
+# ---- Claude (the key the team actually has) ----
+
+class FakeMessages:
+    def __init__(self, reply=None, error=None):
+        self.reply, self.error, self.calls = reply, error, []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.reply
+
+
+def claude_reply(text, stop_reason="end_turn"):
+    from types import SimpleNamespace as NS
+    # a thinking block first: Haiku 5.5 thinks by default, so content[0] is not the answer
+    return NS(stop_reason=stop_reason, stop_details=None,
+              content=[NS(type="thinking", thinking=""), NS(type="text", text=text)])
+
+
+def fake_claude(monkeypatch, messages):
+    from types import SimpleNamespace as NS
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setattr(llm, "claude_client", lambda: NS(messages=messages))
+
+
+def test_claude_analysis_when_only_an_anthropic_key_is_set(monkeypatch):
+    """The team's only working key is Anthropic's; without this path every Hindi case
+    reaches the caseworker untranslated."""
+    reply = {"transcript_en": "Resident: No heat.", "summary_en": "No heat.",
+             "suggested_action": "schedule_inspection"}
+    messages = FakeMessages(claude_reply("```json\n" + json.dumps(reply) + "\n```"))
+    fake_claude(monkeypatch, messages)
+    out = asyncio.run(llm.analyze("Resident: हीटिंग नहीं है", {"language": "hi", "indoor_f": 61, "address": "x"}))
+    assert out == reply
+    assert messages.calls[0]["model"] == "claude-haiku-5-5"
+
+
+def test_claude_translation_skips_the_thinking_block(monkeypatch):
+    fake_claude(monkeypatch, FakeMessages(claude_reply("आपका केस भेजा गया")))
+    assert asyncio.run(llm.translate("Your case was sent.", "hi")) == "आपका केस भेजा गया"
+
+
+def test_claude_failure_or_refusal_is_none(monkeypatch):
+    import anthropic
+    import httpx2
+    error = anthropic.APIConnectionError(request=httpx2.Request("POST", "https://api.anthropic.com"))
+    fake_claude(monkeypatch, FakeMessages(error=error))
+    assert asyncio.run(llm.claude("hi")) is None
+    fake_claude(monkeypatch, FakeMessages(claude_reply("", stop_reason="refusal")))
+    assert asyncio.run(llm.claude("hi")) is None
+
+
+def test_grok_wins_over_claude_when_both_keys_are_set(monkeypatch):
+    messages = FakeMessages(claude_reply("from claude"))
+    fake_claude(monkeypatch, messages)
+    monkeypatch.setenv("XAI_API_KEY", "k")
+    mock_http(monkeypatch, llm, lambda r: httpx.Response(
+        200, json={"choices": [{"message": {"content": "from grok"}}]}))
+    assert asyncio.run(llm.ask("hi")) == "from grok" and messages.calls == []
