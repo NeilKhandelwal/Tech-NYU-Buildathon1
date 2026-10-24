@@ -250,3 +250,16 @@ def test_non_heat_suggestion_is_an_inspection():
     assert llm.suggest({"complaint_type": "pothole", "address": "1 Main St"}) == "schedule_inspection"
     assert llm.suggest({"complaint_type": "noise", "address": ""}) == "need_more_info"
     assert llm.suggest({"complaint_type": "heat", "address": "1 Main St", "indoor_f": None}) == "need_more_info"
+
+
+def test_followup_choice_is_stored_and_shapes_the_confirmation(api):
+    """The resident chose how to hear back; the confirmation must promise that, not a call."""
+    texted = new_case(api, followup="text")["case_id"]
+    assert hcdb.get_case(texted)["followup"] == "text"
+    assert hcdb.get_case(new_case(api, followup="carrier pigeon")["case_id"])["followup"] == "call"
+    api.post("/api/tools/submit_case", json={"case_id": texted, "resident_confirmed": True})
+    [(_, kind, english)] = api.sent
+    assert kind == "confirmation" and "follow up by text" in english
+    case = hcdb.get_case(texted)
+    assert "संदेश" in hc.localized(case, "confirmation")  # Hindi template says "by message"
+    assert "कॉल" in hc.localized({**case, "followup": "call"}, "confirmation")

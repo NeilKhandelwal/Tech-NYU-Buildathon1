@@ -193,3 +193,56 @@ def test_callback_without_an_llm_uses_the_agents_english(api, monkeypatch):
     api.post("/api/webhooks/elevenlabs_post_call", json=body)
     [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
     assert ended["text_en"] == "Resident: Yes."
+
+
+def test_whatsapp_alias_routes_both_ways(api, monkeypatch):
+    """Demo: Romir calls from a US number but his WhatsApp is Indian. The receipt must reach
+    the WhatsApp number, and his WhatsApp reply must land on the case filed under the caller ID."""
+    import asyncio
+    from app import sms
+    monkeypatch.setenv("WHATSAPP_ALIASES", "5551234567=919108651858")
+    monkeypatch.setenv("TWILIO_CHANNEL", "whatsapp")
+    for k, v in (("TWILIO_ACCOUNT_SID", "AC1"), ("TWILIO_AUTH_TOKEN", "t"),
+                 ("TWILIO_PHONE_NUMBER", "+14155238886")):
+        monkeypatch.setenv(k, v)
+    seen = []
+
+    async def fake_post(self, url, **kw):
+        import httpx
+        seen.append(kw["data"]["To"])
+        return httpx.Response(201, json={"sid": "SM1"})
+
+    monkeypatch.setattr(sms.httpx.AsyncClient, "post", fake_post)
+    status, _, _ = asyncio.run(sms.twilio_send("5551234567", "hi"))
+    assert (status, seen) == ("sent", ["whatsapp:+919108651858"])
+    case = case_with_conversation()
+    api.post("/api/webhooks/twilio_sms", content="From=whatsapp%3A%2B919108651858&Body=ok",
+             headers={"Content-Type": "application/x-www-form-urlencoded"})
+    assert hcdb.list_events(case["id"])[-1]["type"] == "sms_in"
+
+
+def test_caseworker_text_sends_their_words_translated(api, monkeypatch):
+    """The 'Text resident' box: the caseworker's own words go out in the resident's language,
+    never the receipt template, and land as an sms_out the console shows live."""
+    from app import llm, sms
+    sent = []
+
+    async def fake_send(phone, body):
+        sent.append((phone, body))
+        return "sent", "SM1", None
+
+    async def fake_translate(text, lang):
+        return f"[{lang}] {text}"
+
+    monkeypatch.setattr(sms, "twilio_send", fake_send)
+    monkeypatch.setattr(llm, "translate", fake_translate)
+    case = case_with_conversation(language="hi")
+    r = api.post(f"/api/cases/{case['id']}/sms", json={"text_en": "  Is the heat back on? "})
+    assert r.status_code == 201
+    assert sent == [("5551234567", "[hi] Is the heat back on?")]
+    event = r.json()
+    assert (event["type"], event["payload"]["kind"], event["text_en"]) == \
+        ("sms_out", "caseworker", "Is the heat back on?")
+    assert api.post(f"/api/cases/{case['id']}/sms", json={"text_en": " "}).status_code == 422
+    assert api.post("/api/cases/00000000-0000-0000-0000-000000000000/sms",
+                    json={"text_en": "hi"}).status_code == 404

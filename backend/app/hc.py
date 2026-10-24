@@ -45,6 +45,8 @@ except ImportError:
 COMPLAINT_TYPES = ("heat", "hot_water", "missed_pickup", "pothole", "streetlight", "water",
                    "animal", "noise", "other")
 HEAT_TYPES = ("heat", "hot_water")
+# the resident's choice at intake; anything else stores as "call", the behaviour before it existed
+FOLLOWUPS = ("text", "call")
 LANGUAGE_LABELS = {"en": "English", "es": "Spanish", "hi": "Hindi", "zh": "Chinese",
                    "bn": "Bengali", "ru": "Russian", "ko": "Korean", "ar": "Arabic",
                    "fr": "French", "ht": "Haitian Creole", "pl": "Polish", "ur": "Urdu"}
@@ -77,6 +79,7 @@ def fetch(case_id) -> dict:
 SMS = {
     "es": {
         "confirmation": "CityLine: su queja {case_number} fue enviada al encargado de casos de la ciudad. Le llamaremos en español.",
+        "confirmation_text": "CityLine: su queja {case_number} fue enviada al encargado de casos de la ciudad. Le escribiremos por mensaje con las novedades.",
         "receipt": "CityLine {case_number}: {action}. Su respuesta: {response}. Puede responder en cualquier momento.",
         "actions": {"schedule_inspection": "se programará una inspección",
                     "need_more_info": "el encargado de casos necesita más información",
@@ -88,6 +91,7 @@ SMS = {
     },
     "hi": {
         "confirmation": "CityLine: आपकी शिकायत {case_number} शहर के केसवर्कर को भेज दी गई है। हम आपको हिंदी में वापस कॉल करेंगे।",
+        "confirmation_text": "CityLine: आपकी शिकायत {case_number} शहर के केसवर्कर को भेज दी गई है। केसवर्कर आपको संदेश से जानकारी देंगे।",
         "receipt": "CityLine {case_number}: {action}। आपका जवाब: {response}। आप कभी भी जवाब दे सकते हैं।",
         "actions": {"schedule_inspection": "निरीक्षण तय किया जाएगा",
                     "need_more_info": "केसवर्कर को और जानकारी चाहिए",
@@ -106,7 +110,8 @@ def localized(case: dict, kind: str) -> str | None:
     if t is None:
         return None
     if kind == "confirmation":
-        return t["confirmation"].format(case_number=case["case_number"])
+        key = "confirmation_text" if case.get("followup") == "text" else "confirmation"
+        return t[key].format(case_number=case["case_number"])
     action = t["actions"].get(case["caseworker_action"] or "", t["reviewed"])
     response = t["responses"].get(case["resident_response"] or "", "")
     return t["receipt"].format(case_number=case["case_number"], action=action, response=response)
@@ -142,6 +147,7 @@ async def geocode(address: str) -> dict:
 class CreateCase(BaseModel):
     complaint_type: str | None = "heat"
     description: str | None = None  # the agent's English one-liner of the problem
+    followup: str | None = None  # "text" | "call"
     resident_name: str | None = None
     resident_phone: str | None = None
     language: str | None = "en"
@@ -167,6 +173,7 @@ async def create_case(body: CreateCase) -> dict:
     case = hcdb.insert_case(
         complaint_type=complaint if complaint in COMPLAINT_TYPES else "other",
         description=(body.description or "").strip() or None,
+        followup=body.followup if body.followup in FOLLOWUPS else "call",
         resident_name=body.resident_name, resident_phone=phone, language=language,
         language_label=body.language_label or LANGUAGE_LABELS.get(language, language),
         address=address, unit=body.unit, days_without_heat=body.days_without_heat,
@@ -235,9 +242,10 @@ async def submit_case(body: SubmitCase, tasks: BackgroundTasks) -> dict:
         # building + priority after the response, so the case reaches the console complete
         # while the resident is still on the line (webhooks.enrich never raises)
         tasks.add_task(webhooks.enrich, case["id"])
-        await send_sms(case, "confirmation",
-                       f"CityLine: your complaint {case['case_number']} was sent to the "
-                       f"city caseworker. We'll call you back in {case['language_label']}.")
+        then = ("The caseworker will follow up by text." if case.get("followup") == "text"
+                else f"We'll call you back in {case['language_label']}.")
+        await send_sms(case, "confirmation", f"CityLine: your complaint {case['case_number']} "
+                                             f"was sent to the city caseworker. {then}")
     return {"ok": True, "case_number": case["case_number"]}
 
 
@@ -322,6 +330,23 @@ async def callback(case_id: str) -> dict:
     hcdb.add_event(case["id"], "callback_call", "callback_agent",
                    payload={"conversation_id": conversation_id})
     return {"ok": True, "conversation_id": conversation_id}
+
+
+class CaseworkerText(BaseModel):
+    text_en: str
+
+
+@app.post("/api/cases/{case_id}/sms", status_code=201)
+async def caseworker_text(case_id: str, body: CaseworkerText) -> dict:
+    if not body.text_en.strip():
+        raise HTTPException(status_code=422, detail="text_en is empty")
+    if sms is None:
+        raise HTTPException(status_code=503, detail="sms module missing")
+    case = fetch(case_id)
+    # the caseworker wrote it and clicked Send: that is the human check, so no template.
+    # sms.send_sms, not send_sms above: localized() would swap any non-confirmation kind for
+    # the receipt template and send that instead of the caseworker's words
+    return await sms.send_sms(case, "caseworker", body.text_en.strip())
 
 
 @app.get("/health")

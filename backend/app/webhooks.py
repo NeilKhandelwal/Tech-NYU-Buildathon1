@@ -129,7 +129,11 @@ async def elevenlabs_post_call(request: Request, tasks: BackgroundTasks) -> dict
 async def twilio_sms(request: Request) -> Response:
     # form-encoded; parsed by hand so FastAPI's Form() doesn't pull in python-multipart
     form = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
-    body, phone = form.get("Body", "").strip(), digits(form.get("From"))
+    from app import sms  # late, like hcdb(): this file must load without lane modules
+    sender = "".join(c for c in form.get("From", "") if c.isdigit())
+    # a WhatsApp alias maps back to the case's phone; hcdb.digits keeps a non-US country code
+    phone = hcdb().digits(sms.case_phone(sender)) if sender else ""
+    body = form.get("Body", "").strip()
     case = hcdb().find_case_by_phone(phone) if phone else None
     if case and body:
         english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")
