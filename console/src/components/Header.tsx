@@ -25,7 +25,7 @@ export function Header({ cases, live, onLine, now }: { cases: Case[]; live: Live
     <header className="flex h-16 shrink-0 items-center gap-6 border-b border-slate-200 bg-white px-6">
       <Mark />
       <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-        Heat Check Caseworker Console <span className="font-normal text-slate-400">(demo)</span>
+        CityLine Caseworker Console <span className="font-normal text-slate-400">(demo)</span>
         <span className="ml-3 align-middle text-xs font-medium uppercase tracking-wider text-slate-400">All 311 reports</span>
       </h1>
       <div className="ml-auto flex items-center gap-8 text-sm">

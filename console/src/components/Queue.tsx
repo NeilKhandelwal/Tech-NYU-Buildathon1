@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AGENT_LABEL, elapsed, type Call } from "@/lib/calls";
-import { ISSUE_LABEL, issueOf, isHeat, type Case, type IssueType } from "@/lib/types";
+import { COMPLAINT_LABEL, complaintOf, isHeat, type Case, type ComplaintType } from "@/lib/types";
 import { ago, borough, isOpen, nyClock, queueOrder } from "@/lib/format";
 import { IssueBadge, LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
 
@@ -28,10 +28,10 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
 }) {
   const [tab, setTab] = useState<"cases" | "calls">("cases");
   const [filter, setFilter] = useState<Filter>("all");
-  const [issue, setIssue] = useState<IssueType | "all">("all");
+  const [issue, setIssue] = useState<ComplaintType | "all">("all");
   const shown = cases
     .filter(FILTERS[filter].keep)
-    .filter((c) => issue === "all" || issueOf(c) === issue)
+    .filter((c) => issue === "all" || complaintOf(c) === issue)
     .sort(queueOrder);
   const live = calls.filter((c) => c.live);
   const byId = new Map(cases.map((c) => [c.id, c]));
@@ -82,13 +82,13 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
             ))}
             <select
               value={issue}
-              onChange={(e) => setIssue(e.target.value as IssueType | "all")}
+              onChange={(e) => setIssue(e.target.value as ComplaintType | "all")}
               className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
               aria-label="Problem type"
             >
               <option value="all">All problem types</option>
-              {(Object.keys(ISSUE_LABEL) as IssueType[]).map((t) => (
-                <option key={t} value={t}>{ISSUE_LABEL[t]}</option>
+              {(Object.keys(COMPLAINT_LABEL) as ComplaintType[]).map((t) => (
+                <option key={t} value={t}>{COMPLAINT_LABEL[t]}</option>
               ))}
             </select>
           </div>

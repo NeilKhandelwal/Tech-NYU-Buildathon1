@@ -57,34 +57,39 @@ export type Case = {
   caseworker_message_en: string | null;
   resident_response: "confirmed" | "reschedule" | "question" | "no_answer" | null;
   resident_response_note_en: string | null;
-  // null on cases filed before the line took all 311 types: those were all heat
-  issue_type: IssueType | null;
-  description: string | null;
+  // backend/app/hc.py COMPLAINT_TYPES; the column defaults to "heat", so older rows read as heat
+  complaint_type: ComplaintType | null;
+  description: string | null; // the agent's English one-liner of the problem
 };
 
-// backend/app/hc.py ISSUE_TYPES (and agent/provision.py's enum): third copy, on purpose,
+// backend/app/hc.py COMPLAINT_TYPES (and agent/provision.py's enum): third copy, on purpose,
 // since Python and TypeScript can't share one file
-export type IssueType =
-  | "heat_hot_water"
+export type ComplaintType =
+  | "heat"
+  | "hot_water"
   | "missed_pickup"
   | "pothole"
   | "streetlight"
   | "water"
   | "animal"
+  | "noise"
   | "other";
 
-export const ISSUE_LABEL: Record<IssueType, string> = {
-  heat_hot_water: "No heat / hot water",
+export const COMPLAINT_LABEL: Record<ComplaintType, string> = {
+  heat: "No heat",
+  hot_water: "No hot water",
   missed_pickup: "Missed pickup",
   pothole: "Pothole",
   streetlight: "Streetlight out",
   water: "Water problem",
   animal: "Animal problem",
+  noise: "Noise",
   other: "Other",
 };
 
-export const issueOf = (c: Case): IssueType => c.issue_type ?? "heat_hot_water";
-export const isHeat = (c: Case) => issueOf(c) === "heat_hot_water";
+export const complaintOf = (c: Case): ComplaintType => c.complaint_type ?? "heat";
+// hc.py HEAT_TYPES: the in-depth path (violation check, building history)
+export const isHeat = (c: Case) => ["heat", "hot_water"].includes(complaintOf(c));
 
 export type EventType =
   | "intake_call"
@@ -136,7 +141,7 @@ const GENERIC_TEMPLATES: Record<CaseworkerAction, string> = {
 export function messageTemplate(action: CaseworkerAction, c: Case): string {
   if (isHeat(c)) return ACTIONS.find((a) => a.value === action)!.template;
   return GENERIC_TEMPLATES[action]
-    .replace("{issue}", ISSUE_LABEL[issueOf(c)].toLowerCase())
+    .replace("{issue}", COMPLAINT_LABEL[complaintOf(c)].toLowerCase())
     .replace("{place}", c.address);
 }
 

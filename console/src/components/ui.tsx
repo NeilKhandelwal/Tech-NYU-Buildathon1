@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ISSUE_LABEL, STATUS_LABEL, issueOf, isHeat, type Case, type Priority, type Status } from "@/lib/types";
+import { COMPLAINT_LABEL, STATUS_LABEL, complaintOf, isHeat, type Case, type Priority, type Status } from "@/lib/types";
 
 export function Card({ title, children, className = "", aside }: {
   title: string;
@@ -34,7 +34,7 @@ export function IssueBadge({ c, large }: { c: Case; large?: boolean }) {
         heat ? "bg-orange-50 text-orange-800 ring-1 ring-orange-200" : "bg-slate-800 text-white"
       }`}
     >
-      {ISSUE_LABEL[issueOf(c)]}
+      {COMPLAINT_LABEL[complaintOf(c)]}
     </span>
   );
 }

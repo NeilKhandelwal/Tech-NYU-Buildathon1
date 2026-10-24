@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Case } from "@/lib/types";
-import { ISSUE_LABEL, RESPONSE_LABEL, issueOf, isHeat } from "@/lib/types";
+import { COMPLAINT_LABEL, RESPONSE_LABEL, complaintOf, isHeat } from "@/lib/types";
 import { addressLine, fineRange, legalMinimum, nyTime } from "@/lib/format";
 import { Card, Flash, IssueBadge, LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
 
@@ -52,7 +52,7 @@ export function SummaryCard({ c, flash }: { c: Case; flash: Flashing }) {
         {isHeat(c) ? (
           <Fact label="Days without heat" value={c.days_without_heat} />
         ) : (
-          <Fact label="Problem" value={ISSUE_LABEL[issueOf(c)]} />
+          <Fact label="Problem" value={COMPLAINT_LABEL[complaintOf(c)]} />
         )}
         <Fact label="Callback number" value={formatPhone(c.resident_phone)} />
         <Fact label="Resident note" value={c.resident_response_note_en} />

@@ -1,13 +1,13 @@
-# Heat Check Caseworker Console (demo)
+# CityLine Caseworker Console (demo)
 
-The government side of Heat Check: the caseworker queue, case detail, and the
+The government side of CityLine (renamed from Heat Check): the caseworker queue, case detail, and the
 "Call back in the resident's language" action. Spec: `DASHBOARD.md` (on `main`).
 It covers **all 311 reports**, not only heat, and shows **every call while it's happening**.
 
 - **Reads** come straight from Supabase (`cases`, `events`), live over Realtime.
-- **311 types:** `cases.issue_type` is one of heat_hot_water, missed_pickup, pothole,
-  streetlight, water, animal, other. Null on older rows means heat.
-  - Heat cases keep the violation check and building history.
+- **311 types:** `cases.complaint_type` is one of `backend/app/hc.py`'s `COMPLAINT_TYPES`:
+  heat, hot_water, missed_pickup, pothole, streetlight, water, animal, noise, other.
+  - Heat and hot water keep the violation check and building history.
   - Every other type gets a Report card with the resident's description, plus generic
     message templates.
   - The queue filters by problem type.
@@ -20,7 +20,7 @@ It covers **all 311 reports**, not only heat, and shows **every call while it's 
     switches to the case.
 - **Messages** to residents go over WhatsApp in the demo; the panel shows `sms_out` /
   `sms_in` events whichever channel sent them.
-- **Writes** go to the Heat Check API on Fly: `POST /api/cases/{id}/action`, then
+- **Writes** go to the CityLine API on Fly: `POST /api/cases/{id}/action`, then
   `POST /api/cases/{id}/callback`.
 - No login: it's a demo console for a projector.
 
@@ -33,20 +33,15 @@ npm run dev                  # http://localhost:3000
 Vercel: import the repo with **Root Directory = `console`** and set the three
 `NEXT_PUBLIC_*` variables from `.env.example`.
 
-## Turning on all-311 and live calls (branch `hc/311`)
+## Turning on the live call log
 
-Order doesn't matter: the API works before the SQL runs, and the old agent keeps filing heat.
+The 311 complaint types are already live: the columns are applied in Supabase, and the agents
+are provisioned with `complaint_type` (Neil's `heatcheck` work).
 
-1. **Supabase SQL editor:** run the last block of `supabase/schema.sql` (two
-   `alter table cases add column if not exists`). Until then `issue_type` reads as null,
-   and every case shows as heat.
-2. **Fly:** deploy, and set `ELEVENLABS_INTAKE_AGENT_ID` (and `ELEVENLABS_CALLBACK_AGENT_ID`)
+1. **Fly:** deploy, and set `ELEVENLABS_INTAKE_AGENT_ID` (and `ELEVENLABS_CALLBACK_AGENT_ID`)
    so the call log watches those agents. With neither set, it watches every conversation
    in the workspace. `HC_LIVE_CALLS=0` turns it off.
-3. **Agents:** `cd agent && uv run python provision.py` re-provisions the intake agent (311
-   prompt, `issue_type` / `description` on `create_case`) and the callback agent (generic
-   greeting, `{{issue_label}}`).
-4. **Live lines** need the agents' **Monitoring** toggle (Advanced settings), which ElevenLabs
+2. **Live lines** need the agents' **Monitoring** toggle (Advanced settings), which ElevenLabs
    offers on Enterprise or with the realtime-monitoring flag.
    - Without it, calls still appear live, with a running timer. The relay then polls the
      conversation's transcript, which ElevenLabs may only fill in when the call ends.
@@ -56,8 +51,8 @@ Tested on `hc/311`:
 
 | Check | Result |
 |---|---|
-| Backend suite | 276 passed, including 22 new in `test_hc_311.py` and `test_live.py` |
-| Agent suite | 16 passed, 2 new: issue enum matches the backend; the heat rule is heat-only |
+| Backend suite (merged with `heatcheck` @ a717bf2) | 270 passed, including 11 new in `test_live.py` |
+| Agent suite | 17 passed (Neil's `complaint_type` agent, unchanged here) |
 | `groupCalls` logic (scratch script) | 8 assertions pass: live vs ended vs stale, a late translation, a late case link |
 | API boot with the poller on (fake key) | `/health` 200; the poller hits ElevenLabs every 2 s and logs the 401 without crashing |
 | Console lint, clean build; real page against the real Supabase URL | Pass, no hydration errors |
@@ -75,7 +70,7 @@ don't record which channel was used.
 |---|---|
 | `npm run lint`, clean `npm run build` | Pass |
 | Console logic: 8 call-button cases, 7 rule texts, 2 address cases (scratch script) | Pass |
-| Backend Heat Check tests: `test_hc_api`, `test_hc_lib`, `test_hc_webhooks`, `test_hc_reset` | Pass, 46 passed |
+| Backend CityLine tests: `test_hc_api`, `test_hc_lib`, `test_hc_webhooks`, `test_hc_reset` | Pass, 46 passed |
 | `GET /api/cases` on Fly: has every column the console reads | Pass, 4 seeded cases |
 | CORS preflight for the console's `POST` from another origin | Pass: `allow-origin: *`, `content-type` allowed |
 | `POST /api/cases/{id}/action` with an invalid action (writes nothing) | Pass: `422` naming the four valid actions |
