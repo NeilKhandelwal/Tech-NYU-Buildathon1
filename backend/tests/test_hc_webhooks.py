@@ -173,3 +173,23 @@ def test_seed_is_idempotent_and_backdated(api, monkeypatch):
     creston = hcdb.get_case_by_number("HC-104233")
     assert creston["building"]["repeat_offender"] and creston["created_at"] < hcdb.now().isoformat()
     assert [e["type"] for e in hcdb.list_events(creston["id"])][-1] == "resident_response"
+
+
+def test_without_an_llm_the_agents_english_transcript_is_used(api):
+    """The user's call: no Grok/Gemini key; ElevenLabs' data collection supplies the English."""
+    case = case_with_conversation(language="hi")
+    body = post_call(analysis={"transcript_summary": "No heat for three days.",
+                               "data_collection_results": {"transcript_en": {"value": "Resident: No heat."}}})
+    api.post("/api/webhooks/elevenlabs_post_call", json=body)
+    got = hcdb.get_case(case["id"])
+    assert (got["transcript_en"], got["summary_en"]) == ("Resident: No heat.", "No heat for three days.")
+
+
+def test_callback_without_an_llm_uses_the_agents_english(api, monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_CALLBACK_AGENT_ID", "agent-callback")
+    case = case_with_conversation(status="callback_requested", language="hi")
+    body = post_call(agent_id="agent-callback",
+                     analysis={"data_collection_results": {"transcript_en": {"value": "Resident: Yes."}}})
+    api.post("/api/webhooks/elevenlabs_post_call", json=body)
+    [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
+    assert ended["text_en"] == "Resident: Yes."
