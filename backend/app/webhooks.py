@@ -54,18 +54,10 @@ def collected_english(data: dict) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-async def building_history(case: dict) -> dict | None:
-    # HPD violations and heat complaints describe a building's heating; they mean nothing for
-    # a pothole or a missed pickup
-    if not llm.is_heat(case):
-        return None
-    return await building.building_lookup(case.get("address") or "", case.get("borough"))
-
-
 async def process_intake(case: dict, data: dict) -> None:
     transcript = llm.transcript_text(data.get("transcript") or [])
     result = await llm.analyze(transcript, case)
-    found = await building_history(case)
+    found = await building.building_lookup(case.get("address") or "", case.get("borough"))
     fields = {
         "transcript_original": transcript,
         "transcript_en": result["transcript_en"] or collected_english(data),
@@ -88,7 +80,7 @@ async def enrich(case_id) -> None:
         case = hcdb().get_case(case_id)
         if case is None:
             return
-        found = await building_history(case)
+        found = await building.building_lookup(case.get("address") or "", case.get("borough"))
         fields = {"building": found, "priority": llm.priority(case, found)}
         if not case.get("suggested_action"):
             fields["suggested_action"] = llm.suggest(case)
@@ -137,7 +129,11 @@ async def elevenlabs_post_call(request: Request, tasks: BackgroundTasks) -> dict
 async def twilio_sms(request: Request) -> Response:
     # form-encoded; parsed by hand so FastAPI's Form() doesn't pull in python-multipart
     form = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
-    body, phone = form.get("Body", "").strip(), digits(form.get("From"))
+    from app import sms  # late, like hcdb(): this file must load without lane modules
+    sender = "".join(c for c in form.get("From", "") if c.isdigit())
+    # a WhatsApp alias maps back to the case's phone; hcdb.digits keeps a non-US country code
+    phone = hcdb().digits(sms.case_phone(sender)) if sender else ""
+    body = form.get("Body", "").strip()
     case = hcdb().find_case_by_phone(phone) if phone else None
     if case and body:
         english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")

@@ -67,19 +67,6 @@ def test_agents_only_name_variables_their_calls_send():
         assert provision.referenced_variables(agent) <= agent["variables"], key
 
 
-def test_issue_types_match_the_backend():
-    """hc.py files anything outside ISSUE_TYPES as "other"; drift would misfile every report."""
-    body = HC.read_text().split("ISSUE_TYPES = {", 1)[1].split("}", 1)[0]
-    assert provision.ISSUE_TYPES == re.findall(r'"(\w+)":', body)
-    assert provision.TOOLS["create_case"][1]["issue_type"]["enum"] == provision.ISSUE_TYPES
-
-
-def test_the_heat_rule_is_only_for_heat():
-    """check_violation refuses other problems; the prompt must not send them there."""
-    assert "Never call check_violation" in provision.INTAKE_PROMPT
-    assert "issue_type" in provision.TOOLS["create_case"][2]
-
-
 def test_callback_variables_are_what_the_backend_dials_with():
     source = HC.read_text().split("async def callback", 1)[1]
     for var in provision.AGENTS["callback"]["variables"]:
@@ -116,3 +103,22 @@ def test_analysis_comes_back_in_english_for_the_caseworker():
         settings = provision.agent_config(key, [])["platform_settings"]
         assert settings["summary_language"] == "en", key
         assert settings["data_collection"]["transcript_en"]["type"] == "string", key
+
+
+def test_complaint_types_match_the_backend():
+    """hc.py maps an unknown type to 'other'; drift would file every pothole as 'other'."""
+    body = re.search(r"COMPLAINT_TYPES = [[(](.*?)[])]", HC.read_text(), re.S).group(1)
+    assert provision.COMPLAINT_TYPES == re.findall(r'"(\w+)"', body)
+
+
+def test_agents_run_a_model_that_does_not_think_aloud():
+    """The first live call ran ElevenLabs' default reasoning model, which spoke its reasoning
+    to the caller; both agents must pin a model with reasoning off."""
+    for key in provision.AGENTS:
+        prompt = provision.agent_config(key, [])["conversation_config"]["agent"]["prompt"]
+        assert prompt["llm"] == provision.LLM["llm"] and prompt["reasoning_effort"] == "none", key
+
+
+def test_intake_prompt_keeps_the_caller_id_variable():
+    """The f-string escapes must still leave ElevenLabs' {{system__caller_id}} in the text."""
+    assert "{{system__caller_id}}" in provision.INTAKE_PROMPT

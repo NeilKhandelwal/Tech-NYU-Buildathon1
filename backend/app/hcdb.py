@@ -16,9 +16,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (JSON, Boolean, Column, DateTime, ForeignKey, Integer, MetaData,
-                        Numeric, String, Table, Text, Uuid, create_engine, insert, inspect,
-                        select, update)
-from sqlalchemy.exc import NoSuchTableError
+                        Numeric, String, Table, Text, Uuid, create_engine, insert, select,
+                        update)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 
@@ -33,6 +32,9 @@ cases = Table(
     Column("created_at", DateTime(timezone=True)),
     Column("updated_at", DateTime(timezone=True)),
     Column("status", Text, nullable=False),
+    # any 311 complaint (added 13:15); heat stays the in-depth path with the violation check
+    Column("complaint_type", Text, nullable=False, server_default="heat"),
+    Column("description", Text),  # the agent's English one-liner
     Column("resident_name", Text),
     Column("resident_phone", Text, nullable=False),
     Column("language", Text, nullable=False),
@@ -57,9 +59,6 @@ cases = Table(
     Column("caseworker_message_en", Text),
     Column("resident_response", Text),
     Column("resident_response_note_en", Text),
-    # all 311 types, not only heat (supabase/schema.sql adds both to an existing table)
-    Column("issue_type", Text),
-    Column("description", Text),
 )
 
 events = Table(
@@ -98,36 +97,10 @@ def engine() -> Engine:
 
 
 def reset_engine() -> None:
-    global _engine, _missing
+    global _engine
     if _engine is not None:
         _engine.dispose()
     _engine = None
-    _missing = None
-
-
-# Columns this code knows that the live table doesn't have yet (schema.sql's later `alter
-# table ... add column`). Checked once, on first use: a deploy that lands before someone runs
-# the SQL keeps working, reading those fields as None, instead of failing every query mid-call.
-_missing: set[str] | None = None
-
-
-def missing_columns() -> set[str]:
-    global _missing
-    if _missing is None:
-        try:
-            present = {c["name"] for c in inspect(engine()).get_columns("cases")}
-            _missing = {c.name for c in cases.columns} - present
-        except NoSuchTableError:  # tests create the tables after the engine; nothing missing
-            _missing = set()
-    return _missing
-
-
-def _case_columns() -> list:
-    return [c for c in cases.columns if c.name not in missing_columns()]
-
-
-def _present(values: dict) -> dict:
-    return {k: v for k, v in values.items() if k not in missing_columns()}
 
 
 def now() -> datetime:
@@ -155,11 +128,7 @@ def _plain(value):
 
 
 def _row(row) -> dict:
-    out = {k: _plain(v) for k, v in row._mapping.items()}
-    # a cases row always has every key, so the API's shape doesn't depend on the migration
-    if "case_number" in out:
-        out.update({k: None for k in missing_columns() if k not in out})
-    return out
+    return {k: _plain(v) for k, v in row._mapping.items()}
 
 
 def _uuid(value) -> uuid.UUID | None:
@@ -179,8 +148,8 @@ def insert_case(**fields) -> dict:
                 break
         values = {"status": "intake", "priority": "normal", **fields, "id": uuid.uuid4(),
                   "case_number": number, "created_at": ts, "updated_at": ts}
-        conn.execute(insert(cases).values(**_present(values)))
-        return _row(conn.execute(select(*_case_columns()).where(cases.c.id == values["id"])).one())
+        conn.execute(insert(cases).values(**values))
+        return _row(conn.execute(select(cases).where(cases.c.id == values["id"])).one())
 
 
 def get_case(case_id) -> dict | None:
@@ -188,26 +157,26 @@ def get_case(case_id) -> dict | None:
     if pk is None:
         return None
     with engine().begin() as conn:
-        row = conn.execute(select(*_case_columns()).where(cases.c.id == pk)).first()
+        row = conn.execute(select(cases).where(cases.c.id == pk)).first()
         return _row(row) if row else None
 
 
 def get_case_by_number(case_number: str) -> dict | None:
     with engine().begin() as conn:
-        row = conn.execute(select(*_case_columns()).where(cases.c.case_number == case_number)).first()
+        row = conn.execute(select(cases).where(cases.c.case_number == case_number)).first()
         return _row(row) if row else None
 
 
 def update_case(case_id, **fields) -> dict:
     pk = _uuid(case_id)
     with engine().begin() as conn:
-        conn.execute(update(cases).where(cases.c.id == pk).values(**_present(fields), updated_at=now()))
-        return _row(conn.execute(select(*_case_columns()).where(cases.c.id == pk)).one())
+        conn.execute(update(cases).where(cases.c.id == pk).values(**fields, updated_at=now()))
+        return _row(conn.execute(select(cases).where(cases.c.id == pk)).one())
 
 
 def list_cases() -> list[dict]:
     with engine().begin() as conn:
-        return [_row(r) for r in conn.execute(select(*_case_columns()).order_by(cases.c.created_at.desc()))]
+        return [_row(r) for r in conn.execute(select(cases).order_by(cases.c.created_at.desc()))]
 
 
 def add_event(case_id, type: str, actor: str | None, text_original: str | None = None,
@@ -235,7 +204,7 @@ def conversation_events(conversation_id: str, types: tuple[str, ...]) -> list[di
 
 
 def link_conversation(conversation_id: str, case_id) -> None:
-    """Attach a live call's rows (logged before the agent filed the case) to that case."""
+    """Attach a live call's rows (app/live.py logs them before the agent files the case)."""
     if not conversation_id:
         return
     loose = [e["id"] for e in conversation_events(conversation_id, ("call_started", "transcript", "call_ended"))
@@ -256,7 +225,7 @@ def list_events(case_id) -> list[dict]:
 def find_case_by_phone(phone: str) -> dict | None:
     """The most recent case for a phone number, stored digits-only."""
     with engine().begin() as conn:
-        row = conn.execute(select(*_case_columns()).where(cases.c.resident_phone == digits(phone))
+        row = conn.execute(select(cases).where(cases.c.resident_phone == digits(phone))
                            .order_by(cases.c.created_at.desc())).first()
         return _row(row) if row else None
 
@@ -273,6 +242,6 @@ def find_case_by_conversation(conversation_id: str) -> dict | None:
                             .order_by(events.c.created_at.desc()))
         for case_id, payload in rows:
             if (payload or {}).get("conversation_id") == conversation_id:
-                row = conn.execute(select(*_case_columns()).where(cases.c.id == case_id)).first()
+                row = conn.execute(select(cases).where(cases.c.id == case_id)).first()
                 return _row(row) if row else None
     return None

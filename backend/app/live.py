@@ -1,4 +1,4 @@
-"""The live call log the console shows: every call to the Heat Check agents appears while it is
+"""The live call log the console shows: every call to the CityLine agents appears while it is
 happening, with each line transcribed and translated into English as it is said.
 
 A poller lists the agents' ElevenLabs conversations every POLL_S. A new one that is initiated

@@ -94,24 +94,12 @@ def transcript_text(turns: list[dict]) -> str:
     return "\n".join(lines)
 
 
-HEAT = "heat_hot_water"
-
-
-def is_heat(case: dict) -> bool:
-    """Heat cases get the HPD rule, building history and the heat suggestion; other 311 types
-    don't. Here rather than hc.py so webhooks.py can use it; cases filed before issue_type
-    existed were all heat."""
-    return (case.get("issue_type") or HEAT) == HEAT
-
-
 def analysis_prompt(transcript: str, case: dict) -> str:
-    facts = (f"indoor {case.get('indoor_f')}F, outdoor {case.get('outdoor_f')}F, possible "
-             f"violation: {case.get('is_violation')}, days without heat: {case.get('days_without_heat')}"
-             if is_heat(case) else f"type: {case.get('issue_type')}, resident's description: "
-             f"{case.get('description')}")
     return (
-        "You help a city caseworker triage a 311 report phoned in to an AI intake line.\n"
-        f"Case facts: {facts}, language: {case.get('language')}.\n"
+        "You help a city caseworker triage a no-heat complaint phoned in to an AI intake line.\n"
+        f"Case facts: indoor {case.get('indoor_f')}F, outdoor {case.get('outdoor_f')}F, "
+        f"possible violation: {case.get('is_violation')}, days without heat: "
+        f"{case.get('days_without_heat')}, language: {case.get('language')}.\n"
         "Reply with only a JSON object with keys:\n"
         '  "transcript_en": the full transcript translated to English, keeping the '
         "'Agent:' / 'Resident:' line prefixes (copy it unchanged if already English),\n"
@@ -140,8 +128,9 @@ async def analyze(transcript: str, case: dict) -> dict:
 
 def suggest(case: dict) -> str:
     """The suggested next step, by rule (no LLM)."""
-    if not is_heat(case):
-        return "schedule_inspection" if case.get("description") and case.get("address") else "need_more_info"
+    if case.get("complaint_type", "heat") not in ("heat", "hot_water"):
+        # a pothole or noise complaint has no temperature to ask for
+        return "schedule_inspection" if case.get("address") else "need_more_info"
     if case.get("is_violation") and (case.get("indoor_f") or 99) < 58:
         return "emergency_repair"  # HPD's Emergency Repair Program threshold at night
     if case.get("indoor_f") is None or not case.get("address"):

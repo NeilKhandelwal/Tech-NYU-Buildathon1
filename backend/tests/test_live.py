@@ -133,3 +133,14 @@ def test_the_poller_stays_off_without_a_key_or_when_disabled(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
     monkeypatch.setenv("HC_LIVE_CALLS", "0")
     assert live.start() is None
+
+
+def test_filing_the_case_attaches_the_call_logged_so_far(db):
+    """create_case calls link_conversation: rows logged with no case join it, other calls don't."""
+    hcdb.add_event(None, "call_started", "intake_agent", payload={"conversation_id": "conv-1"})
+    hcdb.add_event(None, "transcript", "resident", text_original="Hola", payload={"conversation_id": "conv-1"})
+    hcdb.add_event(None, "transcript", "resident", text_original="other", payload={"conversation_id": "conv-2"})
+    case = hcdb.insert_case(resident_phone="5550000000", language="es", address="1 Main St")
+    hcdb.link_conversation("conv-1", case["id"])
+    assert sorted(e["type"] for e in hcdb.list_events(case["id"])) == ["call_started", "transcript"]
+    assert hcdb.conversation_events("conv-2", ("transcript",))[0]["case_id"] is None
