@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Case } from "./types";
 
 export type LngLat = [number, number];
@@ -54,19 +54,24 @@ function lookup(q: string): Promise<LngLat | null> {
   return inflight.get(q)!;
 }
 
-// case id -> coordinates, filled in as lookups land. Cases without an address are skipped.
+// case id -> coordinates: the API's stored lat/lon when it has them, else a GeoSearch lookup filled
+// in as it lands. Cases without an address are skipped.
 export function useGeocodes(cases: Case[]): Record<string, LngLat> {
-  const [points, setPoints] = useState<Record<string, LngLat>>({});
-  // the effect re-runs only when the set of addresses changes, not on every 2 s poll
-  const key = cases.map((c) => `${c.id}=${placeQuery(c)}`).join("|");
+  // only the browser lookups need state; stored coordinates are read straight off the cases
+  const [looked, setLooked] = useState<Record<string, LngLat>>({});
+  // the API already geocoded these at filing time: no lookup, and the pin sits where the backend
+  // placed the case, so a demo doesn't depend on a third-party call from the browser
+  const stored = (c: Case) => c.lat != null && c.lon != null;
+  // the effect re-runs only when the set of addresses to look up changes, not on every 2 s poll
+  const key = cases.filter((c) => !stored(c)).map((c) => `${c.id}=${placeQuery(c)}`).join("|");
 
   useEffect(() => {
     let alive = true;
     for (const c of cases) {
       const q = placeQuery(c);
-      if (!q) continue;
+      if (stored(c) || !q) continue;
       lookup(q).then((hit) => {
-        if (alive && hit) setPoints((p) => (p[c.id]?.join() === hit.join() ? p : { ...p, [c.id]: hit }));
+        if (alive && hit) setLooked((p) => (p[c.id]?.join() === hit.join() ? p : { ...p, [c.id]: hit }));
       });
     }
     return () => {
@@ -75,5 +80,9 @@ export function useGeocodes(cases: Case[]): Record<string, LngLat> {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- key is the cases' identity here
   }, [key]);
 
-  return points;
+  return useMemo(() => {
+    const out = { ...looked };
+    for (const c of cases) if (stored(c)) out[c.id] = [c.lon!, c.lat!];
+    return out;
+  }, [cases, looked]);
 }
