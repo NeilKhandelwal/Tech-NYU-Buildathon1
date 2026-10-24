@@ -229,3 +229,24 @@ def test_demo_outdoor_override_is_used_and_disclosed(api, monkeypatch):
     out = api.post("/api/tools/check_violation", json={"case_id": case_id}).json()
     assert out["is_violation"] is True and out["outdoor_f"] == 41.0
     assert out["rule_applied"].endswith("(demo: simulated cold day)")
+
+
+def test_any_311_complaint_files_and_heat_check_stays_heat_only(api):
+    """Widened to any 311 complaint: a pothole files with its description, an unknown type
+    files as other instead of failing, and the heat rule is never applied to a non-heat case."""
+    pothole = new_case(api, complaint_type="pothole", description="Deep pothole outside 2800 Creston",
+                       indoor_f=None, days_without_heat=None)
+    case = hcdb.get_case(pothole["case_id"])
+    assert (case["complaint_type"], case["description"]) == ("pothole", "Deep pothole outside 2800 Creston")
+    out = api.post("/api/tools/check_violation", json={"case_id": pothole["case_id"]}).json()
+    assert out == {"error": "the heat check only applies to heat complaints"}
+    weird = new_case(api, complaint_type="graffiti")
+    assert hcdb.get_case(weird["case_id"])["complaint_type"] == "other"
+    assert hcdb.get_case(new_case(api)["case_id"])["complaint_type"] == "heat"  # default
+
+
+def test_non_heat_suggestion_is_an_inspection():
+    from app import llm
+    assert llm.suggest({"complaint_type": "pothole", "address": "1 Main St"}) == "schedule_inspection"
+    assert llm.suggest({"complaint_type": "noise", "address": ""}) == "need_more_info"
+    assert llm.suggest({"complaint_type": "heat", "address": "1 Main St", "indoor_f": None}) == "need_more_info"

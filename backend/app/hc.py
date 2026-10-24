@@ -40,6 +40,11 @@ try:
 except ImportError:
     sms = None
 
+# heat is the in-depth path (violation check, building history); the rest are taken as plain
+# 311 complaints. Unknown values become "other" rather than an error the agent stalls on.
+COMPLAINT_TYPES = ("heat", "hot_water", "missed_pickup", "pothole", "streetlight", "water",
+                   "animal", "noise", "other")
+HEAT_TYPES = ("heat", "hot_water")
 LANGUAGE_LABELS = {"en": "English", "es": "Spanish", "hi": "Hindi", "zh": "Chinese",
                    "bn": "Bengali", "ru": "Russian", "ko": "Korean", "ar": "Arabic",
                    "fr": "French", "ht": "Haitian Creole", "pl": "Polish", "ur": "Urdu"}
@@ -135,6 +140,8 @@ async def geocode(address: str) -> dict:
 # ---- intake agent tools ----
 
 class CreateCase(BaseModel):
+    complaint_type: str | None = "heat"
+    description: str | None = None  # the agent's English one-liner of the problem
     resident_name: str | None = None
     resident_phone: str | None = None
     language: str | None = "en"
@@ -156,7 +163,10 @@ async def create_case(body: CreateCase) -> dict:
         # a 200 with a reason, not a 422: the agent can ask again instead of going silent
         return {"error": f"missing or invalid: {', '.join(missing)}; ask the resident again"}
     language = (body.language or "en").strip().lower().split("-")[0]
+    complaint = (body.complaint_type or "heat").strip().lower()
     case = hcdb.insert_case(
+        complaint_type=complaint if complaint in COMPLAINT_TYPES else "other",
+        description=(body.description or "").strip() or None,
         resident_name=body.resident_name, resident_phone=phone, language=language,
         language_label=body.language_label or LANGUAGE_LABELS.get(language, language),
         address=address, unit=body.unit, days_without_heat=body.days_without_heat,
@@ -188,6 +198,8 @@ async def check_violation(body: CheckViolation) -> dict:
     case = hcdb.get_case(body.case_id)
     if case is None:
         return {"error": "no case with that case_id; call create_case first"}
+    if case["complaint_type"] not in HEAT_TYPES:
+        return {"error": "the heat check only applies to heat complaints"}
     indoor = body.indoor_f if body.indoor_f is not None else case["indoor_f"]
     if indoor is None:
         return {"error": "no indoor temperature yet; ask the resident what their thermometer reads"}

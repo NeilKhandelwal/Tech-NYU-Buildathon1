@@ -32,6 +32,9 @@ cases = Table(
     Column("created_at", DateTime(timezone=True)),
     Column("updated_at", DateTime(timezone=True)),
     Column("status", Text, nullable=False),
+    # any 311 complaint (added 13:15); heat stays the in-depth path with the violation check
+    Column("complaint_type", Text, nullable=False, server_default="heat"),
+    Column("description", Text),  # the agent's English one-liner
     Column("resident_name", Text),
     Column("resident_phone", Text, nullable=False),
     Column("language", Text, nullable=False),

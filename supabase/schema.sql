@@ -56,3 +56,8 @@ create index if not exists events_conversation_id on events ((payload->>'convers
 -- would silently return nothing. Off means anyone with the anon key can read these demo rows.
 alter table cases disable row level security;
 alter table events disable row level security;
+
+-- Any 311 complaint (13:15 decision); heat stays the in-depth path. Already applied to the live
+-- project; safe to re-run.
+alter table cases add column if not exists complaint_type text not null default 'heat';
+alter table cases add column if not exists description text;

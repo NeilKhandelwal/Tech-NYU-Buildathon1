@@ -128,6 +128,9 @@ async def analyze(transcript: str, case: dict) -> dict:
 
 def suggest(case: dict) -> str:
     """The suggested next step, by rule (no LLM)."""
+    if case.get("complaint_type", "heat") not in ("heat", "hot_water"):
+        # a pothole or noise complaint has no temperature to ask for
+        return "schedule_inspection" if case.get("address") else "need_more_info"
     if case.get("is_violation") and (case.get("indoor_f") or 99) < 58:
         return "emergency_repair"  # HPD's Emergency Repair Program threshold at night
     if case.get("indoor_f") is None or not case.get("address"):
