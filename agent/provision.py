@@ -10,8 +10,8 @@ patched, and an agent is patched when its env var (below) holds its id.
 
     uv run python provision.py            # prints each new agent's id
 
-The post-call webhook (/api/webhooks/elevenlabs_post_call) is a workspace setting: set it
-once in the ElevenLabs UI, it is not part of an agent.
+The post-call webhook (/api/webhooks/elevenlabs_post_call) is created once as a workspace
+setting in the ElevenLabs UI; each agent then names it (POST_CALL_WEBHOOK_ID below).
 """
 import os
 import re
@@ -34,8 +34,14 @@ COMPLAINT_TYPES = ["heat", "hot_water", "missed_pickup", "pothole", "streetlight
 # hc.py's FOLLOWUPS: how the resident wants the caseworker's update; checked by test_provision
 FOLLOWUPS = ["text", "call"]
 # a non-reasoning model: deepseek-v41-flash (ElevenLabs' default) spoke its reasoning aloud on
-# the first live call. Haiku with reasoning off answers fast and keeps tool use silent.
-LLM = {"llm": "claude-haiku-5-5", "reasoning_effort": "none"}
+# the first live call, and Haiku 5.5 with reasoning off still said "The caller spoke Hindi, so
+# I must switch..." in 3 of 8 simulated calls. Sonnet 5 with reasoning off went 0 of 8, and
+# also always called language_detection (gpt-4.1 skipped it in 4 of 8, leaving the voice and
+# speech recognition on English). First sentence: median 0.79s, one 3s outlier.
+LLM = {"llm": "claude-sonnet-5", "reasoning_effort": "none"}
+# the workspace post-call webhook (hc.py's /api/webhooks/elevenlabs_post_call); each agent
+# must name it too, or ElevenLabs never sends a post-call. Set live by the backend session.
+POST_CALL_WEBHOOK_ID = "36084646808546a8b2db7c60d825f9db"
 # Brian (deep, comforting), at normal speed: Neil's pick after the first call
 VOICE_ID = "nPczCjzI2devNBz1zQrb"
 # Hindi callers say "हाँ"/"अच्छा" while listening; on the 13:57 calls each one cut the agent
@@ -150,8 +156,10 @@ CALLBACK_PROMPT = textwrap.dedent(
     You are calling a New York City resident back from CityLine, on behalf of the city
     caseworker who reviewed their case. Talk like a kind, experienced caseworker about their complaint {{case_number}} at {{address}}.
     Speak only in {{language_label}} (language code {{language}}). Keep each turn to one or two
-    short sentences. Only say words meant for the resident: never describe your reasoning or
-    tools, and never use bracketed tags like [happy].
+    short sentences. Every word you write is spoken aloud on the phone, including any text
+    next to a tool call, so when you call a tool write nothing else in that message. Never
+    describe your reasoning, your tools or what you are doing (no "Ending the call now"), and
+    never use bracketed tags like [happy].
 
     The caseworker approved this message, written in English:
     "{{caseworker_message_en}}"
@@ -353,6 +361,7 @@ def agent_config(key: str, tool_ids: list[str]) -> dict:
         # ElevenLabs' post-call analysis is the English transcript too, so no second LLM is
         # needed; webhooks.py reads it from data_collection_results.transcript_en
         "data_collection": {"transcript_en": TRANSCRIPT_EN},
+        "workspace_overrides": {"webhooks": {"post_call_webhook_id": POST_CALL_WEBHOOK_ID}},
     }
     if agent["overrides"]:
         config["platform_settings"]["overrides"] = {"conversation_config_override": {

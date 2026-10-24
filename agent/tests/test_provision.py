@@ -135,10 +135,19 @@ def test_followups_match_the_backend():
 
 def test_agents_run_a_model_that_does_not_think_aloud():
     """The first live call ran ElevenLabs' default reasoning model, which spoke its reasoning
-    to the caller; both agents must pin a model with reasoning off."""
+    to the caller, and Haiku with reasoning off still narrated in simulations; both agents
+    must pin the model that passed, with no reasoning turned on."""
     for key in provision.AGENTS:
         prompt = provision.agent_config(key, [])["conversation_config"]["agent"]["prompt"]
-        assert prompt["llm"] == provision.LLM["llm"] and prompt["reasoning_effort"] == "none", key
+        assert prompt["llm"] == "claude-sonnet-5" and prompt["reasoning_effort"] == "none", key
+
+
+def test_agents_name_the_post_call_webhook():
+    """With the agent's webhook id null, ElevenLabs never sent a post-call, so no English
+    transcript reached the caseworker; a re-run must not null it again."""
+    for key in provision.AGENTS:
+        hooks = provision.agent_config(key, [])["platform_settings"]["workspace_overrides"]["webhooks"]
+        assert hooks["post_call_webhook_id"] == provision.POST_CALL_WEBHOOK_ID, key
 
 
 def test_intake_prompt_keeps_the_caller_id_variable():
