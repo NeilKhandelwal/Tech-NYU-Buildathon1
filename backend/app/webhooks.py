@@ -125,22 +125,32 @@ async def elevenlabs_post_call(request: Request, tasks: BackgroundTasks) -> dict
     return {"ok": True}  # other event types (audio, initiation failure): ignored, not retried
 
 
+async def record_inbound(form: dict) -> None:
+    """One inbound text or WhatsApp voice note onto its case. Runs after Twilio has its 200:
+    fetching, transcribing and translating a long voice note can outlast Twilio's 15 s
+    webhook timeout. Never raises."""
+    try:
+        from app import sms  # late, like hcdb(): this file must load without lane modules
+        sender = "".join(c for c in form.get("From", "") if c.isdigit())
+        # a WhatsApp alias maps back to the case's phone; hcdb.digits keeps a non-US country code
+        phone = hcdb().digits(sms.case_phone(sender)) if sender else ""
+        body = form.get("Body", "").strip()
+        case = hcdb().find_case_by_phone(phone) if phone else None
+        note = await voicenote.from_form(form) if case else None  # a WhatsApp voice note, as text
+        body = body or (note or {}).get("text", "")
+        if case and body:
+            english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")
+            hcdb().add_event(case["id"], "sms_in", "resident", text_original=body, text_en=english,
+                             payload={"from": phone, **((note or {}).get("payload") or {})})
+    except Exception:
+        logger.exception("inbound message failed")
+
+
 @router.post("/api/webhooks/twilio_sms")
-async def twilio_sms(request: Request) -> Response:
+async def twilio_sms(request: Request, tasks: BackgroundTasks) -> Response:
     # form-encoded; parsed by hand so FastAPI's Form() doesn't pull in python-multipart
     form = {k: v[0] for k, v in parse_qs((await request.body()).decode()).items()}
-    from app import sms  # late, like hcdb(): this file must load without lane modules
-    sender = "".join(c for c in form.get("From", "") if c.isdigit())
-    # a WhatsApp alias maps back to the case's phone; hcdb.digits keeps a non-US country code
-    phone = hcdb().digits(sms.case_phone(sender)) if sender else ""
-    body = form.get("Body", "").strip()
-    case = hcdb().find_case_by_phone(phone) if phone else None
-    note = await voicenote.from_form(form) if case else None  # a WhatsApp voice note, as text
-    body = body or (note or {}).get("text", "")
-    if case and body:
-        english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")
-        hcdb().add_event(case["id"], "sms_in", "resident", text_original=body, text_en=english,
-                         payload={"from": phone, **((note or {}).get("payload") or {})})
+    tasks.add_task(record_inbound, form)
     # empty TwiML: no auto-reply text
     return Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
                     media_type="application/xml")
