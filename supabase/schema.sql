@@ -50,3 +50,9 @@ alter publication supabase_realtime add table cases, events;
 
 -- the post-call webhook finds a call's case by the conversation id logged on its event
 create index if not exists events_conversation_id on events ((payload->>'conversation_id'));
+
+-- Demo only: the dashboard reads both tables with the anon key over Realtime. With row level
+-- security on (newer Supabase projects can enable it by default), every read and realtime event
+-- would silently return nothing. Off means anyone with the anon key can read these demo rows.
+alter table cases disable row level security;
+alter table events disable row level security;
