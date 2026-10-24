@@ -12,6 +12,22 @@ logger = logging.getLogger("backend")
 
 TWILIO_URL = "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json"
 
+def aliases() -> dict[str, str]:
+    """WHATSAPP_ALIASES="9297800582=919108651858,…": a case's phone -> the WhatsApp number that
+    stands in for it. A case's phone is the caller ID, and a demo caller's WhatsApp can be on
+    another number (another country, even). From Romir's hc-sms, without its photo feature."""
+    pairs = (p.split("=", 1) for p in os.environ.get("WHATSAPP_ALIASES", "").split(",") if "=" in p)
+    return {a.strip(): b.strip() for a, b in pairs}
+
+
+def case_phone(from_digits: str) -> str:
+    """The case phone a message from these digits belongs to: the alias reversed, if any."""
+    for case, whatsapp in aliases().items():
+        if whatsapp == from_digits:
+            return case
+    return from_digits
+
+
 async def twilio_send(to_digits: str, body: str) -> tuple[str, str | None, str | None]:
     """(status, sid, error); status sent | failed | skipped. Never raises."""
     sid, token, from_ = (os.environ.get(k) for k in
@@ -20,6 +36,8 @@ async def twilio_send(to_digits: str, body: str) -> tuple[str, str | None, str |
         return "skipped", None, None
     # hcdb.digits stores US numbers as ten digits and keeps any other country code, e.g. a
     # +91 WhatsApp number is 919108651858
+    if os.environ.get("TWILIO_CHANNEL") == "whatsapp":
+        to_digits = aliases().get(to_digits, to_digits)
     to = "+1" + to_digits if len(to_digits) == 10 else "+" + to_digits
     # US texts from an unregistered number die with 30034 (A2P 10DLC takes days), so the demo
     # sends over WhatsApp: same API, both ends prefixed, From is the sandbox number
