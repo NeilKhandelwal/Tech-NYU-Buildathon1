@@ -11,7 +11,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -293,6 +293,14 @@ async def record_resident_response(body: ResidentResponse) -> dict:
 @app.get("/api/cases")
 def list_cases() -> list[dict]:
     return hcdb.list_cases()
+
+
+@app.get("/api/calls")
+def list_calls(hours: float = 3) -> list[dict]:
+    # the console polls this for calls that haven't filed a case yet; Supabase's publishable key
+    # can't read events while row level security is on, and this API reads with full access
+    since = datetime.now(timezone.utc) - timedelta(hours=min(max(hours, 0), 24))
+    return hcdb.call_events_since(since)
 
 
 @app.get("/api/cases/{case_id}")

@@ -144,3 +144,19 @@ def test_filing_the_case_attaches_the_call_logged_so_far(db):
     hcdb.link_conversation("conv-1", case["id"])
     assert sorted(e["type"] for e in hcdb.list_events(case["id"])) == ["call_started", "transcript"]
     assert hcdb.conversation_events("conv-2", ("transcript",))[0]["case_id"] is None
+
+
+def test_the_console_lists_recent_calls_with_or_without_a_case(db):
+    """GET /api/calls: only the call log, only recent, oldest first."""
+    from datetime import datetime, timedelta, timezone
+
+    from fastapi.testclient import TestClient
+
+    from app import hc
+    hcdb.add_event(None, "call_started", "intake_agent", payload={"conversation_id": "c1"})
+    hcdb.add_event(None, "transcript", "resident", text_original="Hola", payload={"conversation_id": "c1"})
+    hcdb.add_event(None, "sms_out", "system", text_en="not a call row")
+    old = hcdb.add_event(None, "call_started", "intake_agent", payload={"conversation_id": "c0"})
+    hcdb.update_event(old["id"], created_at=datetime.now(timezone.utc) - timedelta(hours=5))
+    rows = TestClient(hc.app).get("/api/calls").json()
+    assert [(r["type"], r["payload"]["conversation_id"]) for r in rows] == [("call_started", "c1"), ("transcript", "c1")]

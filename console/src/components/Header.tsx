@@ -1,6 +1,6 @@
 import type { Live } from "@/lib/useConsole";
 import type { Case } from "@/lib/types";
-import { isOpen, minutes } from "@/lib/format";
+import { isOpen, minutes, parseTime } from "@/lib/format";
 import { Mark } from "./ui";
 
 const LIVE_STYLE: Record<Live, [string, string]> = {
@@ -17,7 +17,7 @@ export function Header({ cases, live, onLine, now }: { cases: Case[]; live: Live
   const urgent = open.filter((c) => c.priority === "urgent").length;
   const waiting = open.filter((c) => WAITING.has(c.status));
   const avgWait = waiting.length
-    ? waiting.reduce((sum, c) => sum + (now - Date.parse(c.created_at)), 0) / waiting.length
+    ? waiting.reduce((sum, c) => sum + (now - parseTime(c.created_at)), 0) / waiting.length
     : null;
   const [dot, label] = LIVE_STYLE[live];
 

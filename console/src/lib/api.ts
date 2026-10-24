@@ -1,6 +1,25 @@
-import type { CaseworkerAction } from "./types";
+import type { Case, CaseEvent, CaseworkerAction } from "./types";
 
 const API = (process.env.NEXT_PUBLIC_API_URL ?? "https://heatcheck-nyu.fly.dev").replace(/\/$/, "");
+
+// Reads go through the API, not Supabase: the API reads with full access, while the publishable
+// key sees nothing while row level security is on (useConsole polls these).
+async function get<T>(path: string): Promise<T> {
+  const r = await fetch(`${API}${path}`, { cache: "no-store" });
+  if (!r.ok) throw new ApiError(r.status, `GET ${path}: HTTP ${r.status}`);
+  return r.json();
+}
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+export const getCases = () => get<Case[]>("/api/cases");
+export const getCase = (id: string) => get<Case & { events: CaseEvent[] }>(`/api/cases/${id}`);
+// 404 until the API is redeployed with the live call log (backend/app/live.py)
+export const getCalls = (hours: number) => get<CaseEvent[]>(`/api/calls?hours=${hours}`);
 
 async function post(path: string, body: unknown) {
   const r = await fetch(`${API}${path}`, {
