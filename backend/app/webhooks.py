@@ -1,4 +1,4 @@
-"""Heat Check webhooks (CONTRACT.md "Webhooks"): ElevenLabs post-call and Twilio inbound SMS.
+"""CityLine webhooks (CONTRACT.md "Webhooks"): ElevenLabs post-call and Twilio inbound SMS.
 
 The post-call webhook answers 200 at once and does the slow work (LLM, Open Data) after the
 response, so ElevenLabs never times out and retries a call we already have.

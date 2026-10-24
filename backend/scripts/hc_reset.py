@@ -1,4 +1,4 @@
-"""Reset the Heat Check demo queue: delete every case that isn't a seed (test calls, rehearsal
+"""Reset the CityLine demo queue: delete every case that isn't a seed (test calls, rehearsal
 runs), then re-seed, so the projector shows only the four older cases before a run-through.
 
     fly ssh console -a heatcheck-nyu -C "python -m scripts.hc_reset"            # dry run

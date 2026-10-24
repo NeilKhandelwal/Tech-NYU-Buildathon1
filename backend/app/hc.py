@@ -1,4 +1,4 @@
-"""Heat Check API: Romir's CONTRACT.md routes (docs/final-context), served by FastAPI on Fly.
+"""CityLine API: Romir's CONTRACT.md routes (docs/final-context), served by FastAPI on Fly.
 
     uvicorn app.hc:app            # HC_DATABASE_URL = the Supabase Postgres connection string
 

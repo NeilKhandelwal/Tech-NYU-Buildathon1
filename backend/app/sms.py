@@ -1,4 +1,4 @@
-"""Twilio SMS for Heat Check (CONTRACT.md `sendSms`). Every text is written in English,
+"""Twilio SMS for CityLine (CONTRACT.md `sendSms`). Every text is written in English,
 translated into the resident's language, sent, and logged as an `sms_out` event even when
 sending fails or Twilio isn't configured, so the dashboard's SMS panel always shows it."""
 import logging

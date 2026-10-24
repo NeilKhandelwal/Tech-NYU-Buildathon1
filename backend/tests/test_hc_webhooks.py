@@ -35,7 +35,7 @@ def case_with_conversation(status="submitted", **over):
 def post_call(conversation_id="conv-9", **data):
     return {"type": "post_call_transcription", "data": {
         "conversation_id": conversation_id, "agent_id": "agent-intake",
-        "transcript": [{"role": "agent", "message": "Hello, this is Heat Check."},
+        "transcript": [{"role": "agent", "message": "Hello, this is CityLine."},
                        {"role": "user", "message": "My heat is out."}],
         "analysis": {"transcript_summary": "Resident reports no heat."}, **data}}
 
@@ -45,7 +45,7 @@ def test_post_call_fills_the_case_and_moves_it_to_review(api):
     assert api.post("/api/webhooks/elevenlabs_post_call", json=post_call()).json() == {"ok": True}
     got = hcdb.get_case(case["id"])
     assert got["status"] == "in_review"
-    assert got["transcript_original"] == "Agent: Hello, this is Heat Check.\nResident: My heat is out."
+    assert got["transcript_original"] == "Agent: Hello, this is CityLine.\nResident: My heat is out."
     assert got["transcript_en"] == got["transcript_original"]  # English call, no LLM needed
     assert got["summary_en"] == "Resident reports no heat."  # ElevenLabs summary fallback
     assert got["priority"] == "urgent"  # violation, three days without heat
