@@ -54,6 +54,9 @@ INTAKE_PROMPT = textwrap.dedent(
       when it is below 55 outside, and at night at least 62 degrees. Say "this may be a
       violation of the city heat rules" when is_violation is true. Never say it is
       definitely illegal and never give legal advice.
+    - Ask if they can send a photo of their thermometer or radiator, because it helps the
+      caseworker. If they agree, call request_photo with the case_id and say what its result
+      says. If they say no, that is fine: carry on.
     - Read the details back in their language and ask: "Should I send this to the city
       caseworker?" Only if they clearly say yes, call submit_case with resident_confirmed
       true. If they say no, thank them and end politely.
@@ -169,6 +172,12 @@ TOOLS = {
          "resident_confirmed": llm("true only if the resident said yes to sending it", "boolean")},
         ["case_id", "resident_confirmed"],
     ),
+    "request_photo": (
+        "Send the resident a WhatsApp message asking for a photo of their thermometer or "
+        "radiator. Only call this after they agree to send a photo. Returns a result to follow.",
+        {"case_id": llm("the case_id create_case returned")},
+        ["case_id"],
+    ),
     "record_resident_response": (
         "Record the resident's answer to the caseworker's message. Texts them a receipt.",
         {"case_id": session("case_id"),
@@ -214,7 +223,7 @@ AGENTS = {
         "prompt": INTAKE_PROMPT,
         "first_message": INTAKE_FIRST_MESSAGE,
         "greetings": INTAKE_GREETINGS,
-        "tools": ["create_case", "check_violation", "submit_case"],
+        "tools": ["create_case", "check_violation", "request_photo", "submit_case"],
         # switch to whatever language the resident speaks
         "built_in": {"end_call": system_tool("end_call"),
                      "language_detection": system_tool("language_detection")},
