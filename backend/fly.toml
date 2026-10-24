@@ -1,4 +1,4 @@
-# Heat Check API on Fly. Secrets (fly secrets set): HC_DATABASE_URL (Supabase), ELEVENLABS_API_KEY,
+# CityLine API on Fly (the app keeps its heatcheck-nyu name: every webhook URL uses it). Secrets (fly secrets set): HC_DATABASE_URL (Supabase), ELEVENLABS_API_KEY,
 # ELEVENLABS_CALLBACK_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID, ELEVENLABS_WEBHOOK_SECRET,
 # HC_TOOL_SECRET, GEMINI_API_KEY / XAI_API_KEY, TWILIO_*, and ELEVENLABS_INTAKE_AGENT_ID so the
 # live call log (app/live.py) watches the intake agent's calls. HC_LIVE_CALLS=0 turns that log off.
