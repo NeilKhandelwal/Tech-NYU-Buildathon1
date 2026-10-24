@@ -24,7 +24,7 @@ import { useConsole } from "@/lib/useConsole";
 const NONE = new Set<string>();
 
 export default function ConsolePage() {
-  const { cases, events, callEvents, selectedId, select, live, error, flash, fresh, configured } = useConsole();
+  const { cases, events, callEvents, selectedId, select, live, error, flash, fresh } = useConsole();
   const [now, setNow] = useState(() => Date.now());
   // a call with no case yet is selected by its conversation id; everything else by case id
   const [callId, setCallId] = useState<string | null>(null);
@@ -68,18 +68,6 @@ export default function ConsolePage() {
   const caseCalls = c ? calls.filter((call) => call.caseId === c.id) : [];
   const liveCall = caseCalls.find((call) => call.live);
   const selection: Selection = callId ? { kind: "call", id: callId } : selectedId ? { kind: "case", id: selectedId } : null;
-
-  if (!configured) {
-    return (
-      <main className="m-auto max-w-lg p-8 text-slate-700">
-        <h1 className="text-lg font-semibold">Supabase isn&apos;t configured</h1>
-        <p className="mt-2 text-sm">
-          Set <code>NEXT_PUBLIC_SUPABASE_URL</code> and <code>NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> in{" "}
-          <code>console/.env.local</code> (or the Vercel project) and restart.
-        </p>
-      </main>
-    );
-  }
 
   return (
     <div className="flex h-screen min-w-[1280px] flex-col">

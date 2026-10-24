@@ -1,3 +1,4 @@
+import { parseTime } from "./format";
 import type { CaseEvent } from "./types";
 
 export type CallState = "idle" | "calling" | "answered" | "done" | "no_answer";
@@ -24,7 +25,7 @@ export function callState(events: CaseEvent[]): CallState {
   if (answered) {
     // a call is over within minutes; an answer this old whose post-call webhook never came
     // (seed data, a lost webhook) must not lock the button forever
-    const at = Date.parse(after.findLast((e) => e.type === "resident_response")!.created_at);
+    const at = parseTime(after.findLast((e) => e.type === "resident_response")!.created_at);
     return Date.now() - at > STALE_MS ? "done" : "answered";
   }
   return dialed ? "calling" : "idle";

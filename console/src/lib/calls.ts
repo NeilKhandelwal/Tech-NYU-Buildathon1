@@ -1,3 +1,4 @@
+import { parseTime } from "./format";
 import type { CaseEvent } from "./types";
 
 export type Line = {
@@ -59,12 +60,12 @@ export function groupCalls(events: CaseEvent[], now: number): Call[] {
     }
   }
   const calls = [...byId.values()];
-  for (const c of calls) c.live = !c.endedAt && now - Date.parse(c.startedAt) < STALE_MS;
+  for (const c of calls) c.live = !c.endedAt && now - parseTime(c.startedAt) < STALE_MS;
   return calls.sort((a, b) => Number(b.live) - Number(a.live) || b.startedAt.localeCompare(a.startedAt));
 }
 
 export function elapsed(from: string, to: number) {
-  const s = Math.max(0, Math.round((to - Date.parse(from)) / 1000));
+  const s = Math.max(0, Math.round((to - parseTime(from)) / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
