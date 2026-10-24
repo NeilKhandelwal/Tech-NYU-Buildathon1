@@ -12,3 +12,9 @@ agent/worker.log
 # written into dashboard/ by the Next 16 dev server, not by us
 dashboard/AGENTS.md
 dashboard/CLAUDE.md
+
+# local secrets, wherever they live; .env.example files stay tracked
+.env.local
+.env.*.local
+.env.*
+!.env.example
