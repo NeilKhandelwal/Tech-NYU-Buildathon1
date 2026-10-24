@@ -19,6 +19,7 @@ def test_reset_leaves_exactly_the_seeds(tmp_path, monkeypatch):
     test = hcdb.insert_case(resident_name="TEST", resident_phone="5555550100", language="en",
                             address="1 Main St")
     hcdb.add_event(test["id"], "intake_call", "intake_agent")
+    hcdb.add_event(None, "call_started", "intake_agent", payload={"conversation_id": "c1"})
     monkeypatch.setattr(sys, "argv", ["hc_reset"])
     hc_reset.main()  # dry run deletes nothing
     assert len(hcdb.list_cases()) == len(hc_seed.SEEDS) + 1
@@ -27,4 +28,5 @@ def test_reset_leaves_exactly_the_seeds(tmp_path, monkeypatch):
     numbers = sorted(c["case_number"] for c in hcdb.list_cases())
     assert numbers == sorted(s["case_number"] for s in hc_seed.SEEDS)
     assert hcdb.list_events(test["id"]) == []
+    assert hcdb.conversation_events("c1", ("call_started",)) == []  # the orphan call row too
     hcdb.reset_engine()

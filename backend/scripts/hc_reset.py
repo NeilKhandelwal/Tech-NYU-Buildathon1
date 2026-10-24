@@ -29,6 +29,9 @@ def main() -> None:
         # events first: the delete must work even where the FK has no ON DELETE CASCADE
         conn.execute(delete(hcdb.events).where(hcdb.events.c.case_id.in_(ids)))
         conn.execute(delete(hcdb.cases).where(hcdb.cases.c.id.in_(ids)))
+        # the live call log writes rows before a case exists; a call that never filed one
+        # would otherwise stay in the console's Calls list
+        conn.execute(delete(hcdb.events).where(hcdb.events.c.case_id.is_(None)))
         conn.commit()
         print(f"deleted {len(ids)} case(s)")
     asyncio.run(hc_seed.main())
