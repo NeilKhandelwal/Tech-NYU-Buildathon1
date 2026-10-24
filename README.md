@@ -146,7 +146,20 @@ go to Agents → Settings → Webhooks, add `https://<tunnel>/voice/webhooks/pos
 **Transcript** event, then copy its HMAC secret into `ELEVENLABS_WEBHOOK_SECRET` in
 `backend/.env`. The call works without it. You just won't get the ElevenLabs summary.
 
-- Env vars: `NEXT_PUBLIC_API_URL` (dashboard → backend, default `http://localhost:8000`), `CORS_ORIGINS` (backend, comma-separated, default `http://localhost:3000`), `DATABASE_URL` (backend; unset means the SQLite file), and the `ELEVENLABS_*` / `VOICE_TOOL_SECRET` set above. All of them are listed in the matching `.env.example`.
+**SMS (Twilio)**, optional: without it every text is still recorded with status `not_sent`
+(`GET /sms`), which is what the dashboard's SMS panel shows.
+1. In the Twilio console, copy **Account SID** and **Auth Token** into `TWILIO_ACCOUNT_SID` /
+   `TWILIO_AUTH_TOKEN` in `backend/.env`, and buy or pick an SMS-capable number for
+   `TWILIO_PHONE_NUMBER` (`+1…`).
+2. A trial account only texts verified numbers: add each teammate's phone under
+   Phone Numbers → Verified Caller IDs. An unverified number comes back as `failed`, error 21608.
+3. Inbound texts: set `PUBLIC_BACKEND_URL` to the tunnel URL, then on the number's page set
+   **A message comes in** → Webhook, `POST`, `https://<tunnel>/sms/webhooks/twilio`. The signature
+   is checked against exactly that URL, so update both when the tunnel changes.
+4. Restart the backend and send one: `curl -X POST localhost:8000/missions/M-101/sms
+   -H 'content-type: application/json' -d '{"text_en": "Test from Heat Check"}'`.
+
+- Env vars: `NEXT_PUBLIC_API_URL` (dashboard → backend, default `http://localhost:8000`), `CORS_ORIGINS` (backend, comma-separated, default `http://localhost:3000`), `DATABASE_URL` (backend; unset means the SQLite file), the `ELEVENLABS_*` / `VOICE_TOOL_SECRET` set above, and `TWILIO_*` / `PUBLIC_BACKEND_URL` for SMS. All of them are listed in the matching `.env.example`.
 - Staff login: set `AUTH_SECRET` (`openssl rand -base64 32`) and `STAFF_USERS="name:hash,..."` in `dashboard/.env.local`, where each hash comes from `cd dashboard && npm run hash-password -- <password>`. **Dev-only shortcut:** leave `STAFF_USERS` unset and dashboard auth is disabled entirely. Never deploy with it unset.
 
 Then open http://localhost:3000/call and press **Start call** (Chrome asks for the mic once).

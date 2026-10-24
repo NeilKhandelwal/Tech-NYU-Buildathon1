@@ -209,6 +209,27 @@ escalations = Table(
     Index("escalations_mission", "mission_id"),
 )
 
+# ---- SMS (migration 0005; CONTRACT "## SMS") ----
+
+# every text in or out, including ones that never left: the row is what the SMS panel shows
+sms = Table(
+    "sms", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("city_id", Integer, ForeignKey("cities.id"), nullable=False, server_default="1"),
+    Column("mission_id", Integer, ForeignKey("missions.id")),  # NULL = no mission for that phone
+    Column("direction", String, nullable=False),  # 'out' | 'in'
+    Column("phone", String, nullable=False),
+    Column("body", String, nullable=False),
+    Column("body_en", String),
+    Column("language", String, nullable=False),
+    Column("status", String, nullable=False),  # 'sent' | 'not_sent' | 'failed' | 'received'
+    Column("error", String),
+    Column("twilio_sid", String),
+    Column("created_at", String, nullable=False),
+    Index("sms_mission", "mission_id"),
+    Index("sms_phone", "phone"),
+)
+
 _engine: Engine | None = None
 
 
@@ -316,6 +337,10 @@ def mission_id(pk: int) -> str:
 
 def mission_pk(mission_id: str) -> int | None:
     return _parse_pk(mission_id, "M-", 100)  # "M-101" -> 1
+
+
+def sms_id(pk: int) -> str:
+    return f"SMS-{pk}"
 
 
 def row_to_case(row: Row) -> dict:

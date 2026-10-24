@@ -13,7 +13,7 @@ from fastapi import (FastAPI, Header, HTTPException, Request, Response, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import insert, select, update
 
-from app import codes, db, elevenlabs, heat, missions, outbound
+from app import codes, db, elevenlabs, heat, missions, outbound, sms
 from app.models import (Call, CallCaseLink, CallCreate, CallDetail, CallStatus, CallUpdate, Case,
                         CaseCreate, CaseCreated, CaseEvent, CaseUpdate, IssueType, NoteCreate,
                         Stats, ToolAddNote, ToolCreateCase, ToolLookupCase, ToolResult,
@@ -40,8 +40,8 @@ def cors_origins() -> list[str]:
 
 # placeholder product name, as in dashboard/src/lib/brand.ts
 app = FastAPI(title="CityLine cases", lifespan=lifespan)
-# the tenant-advocate routers (CONTRACT "## Tenant advocate"): one module per lane
-for module in (missions, heat, outbound):
+# the tenant-advocate routers (CONTRACT "## Tenant advocate") and SMS: one module per lane
+for module in (missions, heat, outbound, sms):
     app.include_router(module.router)
 app.add_middleware(
     CORSMiddleware,

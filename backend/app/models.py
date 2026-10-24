@@ -317,3 +317,23 @@ class ToolOutcome(BaseModel):
     call_id: str
     outcome: str  # str, not Outcome, for the same reason as ToolMissionUpdate.issue
     note: str = ""
+
+
+# ---- SMS (CONTRACT "## SMS") ----
+
+class SmsCreate(BaseModel):
+    text_en: str
+
+
+class Sms(BaseModel):
+    id: str
+    mission_id: str | None
+    direction: Literal["out", "in"]
+    phone: str
+    body: str
+    body_en: str | None
+    language: str
+    status: Literal["sent", "not_sent", "failed", "received"]
+    error: str | None
+    twilio_sid: str | None
+    created_at: str
