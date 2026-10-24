@@ -1,22 +1,29 @@
 import json
+import logging
 import os
 import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import get_args
 
+import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import (FastAPI, Header, HTTPException, Request, Response, WebSocket,
+                     WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
-from livekit import api
 from sqlalchemy import insert, select, update
 
-from app import codes, db
+from app import codes, db, elevenlabs
 from app.models import (Call, CallCaseLink, CallCreate, CallDetail, CallStatus, CallUpdate, Case,
-                        CaseCreate, CaseCreated, CaseEvent, CaseUpdate, NoteCreate,
-                        Stats, TranscriptCreate, TranscriptLine)
+                        CaseCreate, CaseCreated, CaseEvent, CaseUpdate, IssueType, NoteCreate,
+                        Stats, ToolAddNote, ToolCreateCase, ToolLookupCase, ToolResult,
+                        ToolTransfer, ToolUpdateCase, TranscriptCreate, TranscriptLine,
+                        VoiceSession)
 
-load_dotenv(".env")  # LIVEKIT_* for /token, CORS_ORIGINS; python-dotenv ships with uvicorn[standard]
+logger = logging.getLogger("backend")
+
+load_dotenv(".env")  # ELEVENLABS_* and VOICE_TOOL_SECRET for /voice, CORS_ORIGINS; python-dotenv ships with uvicorn[standard]
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -202,26 +209,6 @@ def log_event(conn, case_pk: int, field: str, old: str | None, new: str | None,
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
-
-
-@app.get("/token")
-def token(identity: str) -> dict:
-    """Browser client joins a fresh room; the dev-mode agent is auto-dispatched into it."""
-    url = os.environ.get("LIVEKIT_URL")
-    key = os.environ.get("LIVEKIT_API_KEY")
-    secret = os.environ.get("LIVEKIT_API_SECRET")
-    if not (url and key and secret):
-        raise HTTPException(status_code=500,
-                            detail="LIVEKIT_* env vars not set (see backend/.env.example)")
-    room = "call-" + secrets.token_hex(4)
-    jwt = (
-        api.AccessToken(key, secret)
-        .with_identity(identity)
-        .with_name(identity)
-        .with_grants(api.VideoGrants(room_join=True, room=room))
-        .to_jwt()
-    )
-    return {"token": jwt, "url": url, "room": room}
 
 
 # write endpoints are async so they can await broadcast() after the commit (the `with` exit)
@@ -460,3 +447,213 @@ def stats(since: str | None = None, until: str | None = None) -> Stats:
                  active=active,
                  # None, not 0: an empty window has nothing to score, and 0% reads as a failure
                  containment=contained / handled if handled else None)
+
+
+# ---- ElevenLabs voice (CONTRACT "## ElevenLabs voice") ----
+# The tools used to be LiveKit function tools holding their state on the Assistant object.
+# A server tool is a stateless webhook, so each one rebuilds that state from the call row:
+# calls.current_case_id is the case being worked, call_cases.how says whether this call
+# created it, and the case's own fields say whether it is filed.
+
+BACKEND_DOWN = "I couldn't reach the case system right now, please try again later."
+ISSUE_TYPES = get_args(IssueType)
+
+
+def voice_auth(secret: str) -> None:
+    expected = os.environ.get("VOICE_TOOL_SECRET")
+    if not expected:  # an unset secret must not mean an open endpoint on a public tunnel
+        raise HTTPException(status_code=503, detail="VOICE_TOOL_SECRET not set (see backend/.env.example)")
+    if not secrets.compare_digest(secret, expected):
+        raise HTTPException(status_code=401, detail="bad X-Voice-Secret")
+
+
+def filed(case: Case) -> bool:
+    # filed = classified and described; that is when the lookup code is read out, and from
+    # then on update_case leaves it alone (a second problem is a second case)
+    return case.issue_type is not None and bool(case.description)
+
+
+def working_case(call_id: str) -> tuple[Case | None, str | None]:
+    """The case this call is working right now and how the call reached it."""
+    with db.connect() as conn:
+        call = fetch_call(conn, db.call_pk(call_id))
+        if call.case_id is None:
+            return None, None
+        how = conn.execute(
+            select(db.call_cases.c.how).where(db.call_cases.c.call_id == db.call_pk(call.id),
+                                              db.call_cases.c.case_id == db.case_pk(call.case_id))
+        ).scalar()
+        return fetch_case(conn, db.case_pk(call.case_id)), how
+
+
+def is_closed(case: Case, how: str | None) -> bool:
+    # a looked-up case is someone's existing request: never rewritten by voice
+    return how == "looked_up" or filed(case)
+
+
+@app.post("/voice/session", status_code=201)
+async def voice_session() -> VoiceSession:
+    try:
+        token = await elevenlabs.conversation_token()
+    except elevenlabs.NotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"ElevenLabs token request failed: {e}")
+    call = await create_call(CallCreate())  # only once the token is in hand: no orphan calls
+    return VoiceSession(call_id=call.id, token=token)
+
+
+async def tool(run, call_id: str) -> ToolResult:
+    """Run one tool. A missing call or case reads as an outage to the caller, not a crash."""
+    try:
+        return ToolResult(result=await run())
+    except HTTPException:
+        logger.warning("voice tool on unknown call %s", call_id)
+        return ToolResult(result=BACKEND_DOWN)
+
+
+@app.post("/voice/tools/create_case")
+async def voice_create_case(body: ToolCreateCase, x_voice_secret: str = Header("")) -> ToolResult:
+    voice_auth(x_voice_secret)
+
+    async def run() -> str:
+        current, how = working_case(body.call_id)
+        if current is not None and not is_closed(current, how):
+            return "Finish the current case first (issue type and description), then open another."
+        n = len(digits(body.phone))
+        # STT sometimes splits a number across turns; refuse to file a partial one
+        if n != 10:
+            return f"That number has {n} digits; a phone number should have ten. Could you say it again?"
+        created = await create_case(CaseCreate(name=body.name, phone=body.phone, description=""),
+                                    x_source="voice", x_actor="")
+        await add_call_case(body.call_id, CallCaseLink(case_id=created.id, how="created"),
+                            Response(), x_source="voice", x_actor="")
+        return f"Started case {created.id}"
+
+    return await tool(run, body.call_id)
+
+
+@app.post("/voice/tools/update_case")
+async def voice_update_case(body: ToolUpdateCase, x_voice_secret: str = Header("")) -> ToolResult:
+    voice_auth(x_voice_secret)
+
+    async def run() -> str:
+        case, how = working_case(body.call_id)
+        if case is None:
+            return "No case is open yet; call create_case with the name and phone first."
+        if is_closed(case, how):
+            return (f"Case {case.id} is already filed and can't be changed. If this is a "
+                    "different problem, call create_case to open a new case. If it's a "
+                    "correction to the same problem, call add_note.")
+        # the LLM sends "" for a parameter it means to leave out
+        issue_type, description = body.issue_type or None, body.description or None
+        if issue_type is not None and issue_type not in ISSUE_TYPES:
+            return f"issue_type must be exactly one of: {', '.join(ISSUE_TYPES)}"
+        if issue_type is None and description is None:
+            return "Nothing to update."
+        updated = await update_case(case.id, CaseUpdate(issue_type=issue_type, description=description),
+                                    x_source="voice", x_actor="")
+        if how == "created" and filed(updated):
+            # this is the update that filed it (it wasn't filed on the way in), so the code
+            # goes out here and only here
+            with db.connect() as conn:
+                code = conn.execute(select(db.cases.c.lookup_code).where(
+                    db.cases.c.id == db.case_pk(case.id),
+                    db.cases.c.city_id == db.current_city_id())).scalar()
+            return f"Updated case {case.id}. Lookup code {code}"
+        return f"Updated case {case.id}"
+
+    return await tool(run, body.call_id)
+
+
+@app.post("/voice/tools/lookup_case")
+async def voice_lookup_case(body: ToolLookupCase, x_voice_secret: str = Header("")) -> ToolResult:
+    voice_auth(x_voice_secret)
+
+    async def run() -> str:
+        with db.connect() as conn:
+            fetch_call(conn, db.call_pk(body.call_id))  # an unknown call must not get guesses
+        try:
+            c = await lookup_by_code(body.code, x_call_id=body.call_id, x_source="voice", x_actor="")
+        except HTTPException as e:
+            if e.status_code == 404:
+                return "No case matches that code."
+            if e.status_code == 429:
+                return "Too many attempts."
+            raise
+        await add_call_case(body.call_id, CallCaseLink(case_id=c.id, how="looked_up"),
+                            Response(), x_source="voice", x_actor="")
+        issue = c.issue_type or "not yet classified"
+        return f"Case {c.id}, {issue}, status {c.status}, description {c.description}"
+
+    return await tool(run, body.call_id)
+
+
+@app.post("/voice/tools/add_note")
+async def voice_add_note(body: ToolAddNote, x_voice_secret: str = Header("")) -> ToolResult:
+    voice_auth(x_voice_secret)
+
+    async def run() -> str:
+        case, _ = working_case(body.call_id)
+        if case is None:
+            return "No case on this call yet; ask for the three-word lookup code and call lookup_case."
+        await add_case_note(case.id, NoteCreate(text=body.note), x_source="voice", x_actor="")
+        return f"Note added to case {case.id}"
+
+    return await tool(run, body.call_id)
+
+
+@app.post("/voice/tools/transfer_to_staff")
+async def voice_transfer(body: ToolTransfer, x_voice_secret: str = Header("")) -> ToolResult:
+    voice_auth(x_voice_secret)
+
+    async def run() -> str:
+        # needs_person keeps the call live (no ended_at) so staff see it waiting
+        await update_call(body.call_id, CallUpdate(status="needs_person", transfer_reason=body.reason),
+                          x_source="voice", x_actor="")
+        return ("Transfer requested. Tell the caller a staff member will pick up shortly and to "
+                "stay on the line. Do not end the call.")
+
+    return await tool(run, body.call_id)
+
+
+@app.post("/voice/webhooks/post-call")
+async def voice_post_call(request: Request) -> dict:
+    raw = await request.body()  # the signature is over the raw bytes, so read before parsing
+    try:
+        secret = elevenlabs.env("ELEVENLABS_WEBHOOK_SECRET")
+    except elevenlabs.NotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    if not elevenlabs.signature_ok(raw, request.headers.get("elevenlabs-signature"), secret):
+        raise HTTPException(status_code=401, detail="bad ElevenLabs-Signature")
+    event = json.loads(raw)
+    if event.get("type") != "post_call_transcription":
+        return {"ok": True}
+    data = event.get("data") or {}
+    client_data = data.get("conversation_initiation_client_data") or {}
+    call_id = (client_data.get("dynamic_variables") or {}).get("call_id")
+    call_pk = db.call_pk(call_id) if isinstance(call_id, str) else None
+    with db.connect() as conn:
+        try:
+            call = fetch_call(conn, call_pk)
+        except HTTPException:
+            return {"ok": True}  # not ours (a dashboard test call, another app): ignore, don't retry
+        streamed = conn.execute(select(db.transcript.c.id)
+                                .where(db.transcript.c.call_id == call_pk).limit(1)).fetchone()
+        if streamed is None:
+            # the browser relays lines live; a call with none (tab closed early, phone call)
+            # still gets its transcript from here
+            for turn in data.get("transcript") or []:
+                role, text = turn.get("role"), (turn.get("message") or "").strip()
+                if role in ("user", "agent") and text:
+                    conn.execute(insert(db.transcript).values(call_id=call_pk, role=role,
+                                                              text=text, ts=now()))
+        changes = {}
+        summary = (data.get("analysis") or {}).get("transcript_summary")
+        if summary:
+            changes["summary"] = summary
+        if call.status != "ended":
+            changes.update(status="ended", ended_at=now())
+        touch_call(conn, call_pk, **changes)
+    await broadcast("call", call.id)
+    return {"ok": True}

@@ -82,16 +82,6 @@ def test_call_found_by_room(client):
     assert client.get("/calls", params={"room": "nope"}).json() == []
 
 
-def test_token_returns_room_scoped_credentials(client, monkeypatch):
-    """The browser can't hold the API secret, so a wrong-shaped /token response means no call at all."""
-    monkeypatch.setenv("LIVEKIT_URL", "wss://example.livekit.cloud")
-    monkeypatch.setenv("LIVEKIT_API_KEY", "devkey")
-    monkeypatch.setenv("LIVEKIT_API_SECRET", "devsecret" * 4)
-    body = client.get("/token", params={"identity": "browser"}).json()
-    assert body["url"] == "wss://example.livekit.cloud"
-    assert body["room"].startswith("call-") and body["token"].count(".") == 2
-
-
 def test_needs_person_is_a_live_status_not_an_ended_one(client):
     """A transferred call is still on the line: an ended_at here would drop it from 'Live calls'
     and staff would never see the caller waiting."""

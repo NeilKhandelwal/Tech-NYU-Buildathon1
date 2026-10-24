@@ -116,3 +116,43 @@ class CaseEvent(BaseModel):
     source: str  # which system wrote it: "staff" or "voice"
     actor: str | None  # which person, from X-Actor; None on a voice call and on pre-0003 rows
     ts: str
+
+
+# ElevenLabs server tools (CONTRACT "## ElevenLabs voice"). call_id comes from the
+# {{call_id}} dynamic variable the browser sets at session start, never from the LLM.
+class ToolCreateCase(BaseModel):
+    call_id: str
+    name: str
+    phone: str
+
+
+class ToolUpdateCase(BaseModel):
+    call_id: str
+    # str, not IssueType: a wrong value has to come back as a sentence the agent can
+    # correct, and a 422 is something it can only stall on
+    issue_type: str | None = None
+    description: str | None = None
+
+
+class ToolLookupCase(BaseModel):
+    call_id: str
+    code: str
+
+
+class ToolAddNote(BaseModel):
+    call_id: str
+    note: str
+
+
+class ToolTransfer(BaseModel):
+    call_id: str
+    reason: str
+
+
+class ToolResult(BaseModel):
+    result: str  # what the agent reads; failures are sentences too
+
+
+class VoiceSession(BaseModel):
+    call_id: str
+    token: str
