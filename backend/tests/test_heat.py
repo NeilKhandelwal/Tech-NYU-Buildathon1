@@ -349,7 +349,11 @@ def test_heat_check_call_dials_the_tenant_in_their_language(client, dial):
     call = r.json()
     assert (call["kind"], call["mission_id"], call["conversation_id"]) == ("heat_check", mid, "conv-123")
     # the agent's tools find the mission through call_id, so it must be the row we created
-    assert dial.seen == [("agent-tenant", "5551234567", {"call_id": call["id"], "mission_id": mid}, "es")]
+    [(agent, to, variables, language)] = dial.seen
+    assert (agent, to, language) == ("agent-tenant", "5551234567", "es")
+    assert (variables["call_id"], variables["mission_id"]) == (call["id"], mid)
+    # one tenant agent serves heat checks and report-backs; purpose is how it tells them apart
+    assert variables["purpose"] == "heat_check"
     assert client.get(f"/calls/{call['id']}").json()["kind"] == "heat_check"
 
 

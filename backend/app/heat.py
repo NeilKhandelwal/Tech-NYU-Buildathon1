@@ -176,7 +176,8 @@ def describe(summary: HeatSummary) -> str:
 
 def mission_row(conn, mission_id: str):
     row = conn.execute(select(db.missions.c.id, db.missions.c.tenant_phone,
-                              db.missions.c.tenant_language).where(
+                              db.missions.c.tenant_language, db.missions.c.tenant_name,
+                              db.missions.c.landlord_name).where(
         db.missions.c.id == db.mission_pk(mission_id),
         db.missions.c.city_id == db.current_city_id())).fetchone()
     if row is None:
@@ -272,7 +273,11 @@ async def heat_check_call(mission_id: str) -> Call:
     try:
         conversation_id = await elevenlabs.outbound_call(
             agent_id, mission.tenant_phone,
-            {"call_id": db.call_id(call_pk), "mission_id": mission_id},
+            # the tenant agent serves heat checks and report-backs from one prompt, and
+            # ElevenLabs refuses a call missing any variable that prompt names: send them all
+            {"call_id": db.call_id(call_pk), "mission_id": mission_id, "purpose": "heat_check",
+             "tenant_name": mission.tenant_name, "landlord_name": mission.landlord_name,
+             "outcome": "", "commitments": ""},
             language=mission.tenant_language)
     except BaseException as e:
         with db.connect() as conn:

@@ -137,7 +137,7 @@ async def report_call(mission_id: str) -> Call:
         mission = missions.fetch_mission(conn, db.mission_pk(mission_id))
         commitments = list_commitments_in(conn, db.mission_pk(mission.id))
     call = await dial(mission, "report", "ELEVENLABS_TENANT_AGENT_ID", mission.tenant_phone,
-                      {"landlord_name": mission.landlord_name,
+                      {"landlord_name": mission.landlord_name, "purpose": "report",
                        "outcome": mission.outcome or mission.status,
                        "commitments": commitments_text(commitments)},
                       language=mission.tenant_language)
