@@ -37,10 +37,13 @@ export function queueOrder(a: Case, b: Case) {
 }
 
 // The legal minimum the backend's rule_text() wrote, e.g. "... inside 61F < 68F" -> 68.
-// Rules that impose no minimum don't end in a temperature, so they give null.
+// The comparison is always the last "< nnF" / ">= nnF"; anything after it (the
+// " (demo: simulated cold day)" note) is ignored. Rules with no minimum have no comparison.
 export function legalMinimum(rule: string | null): number | null {
-  const m = rule?.match(/(?:<|>=)\s*(\d+)F$/);
-  return m ? Number(m[1]) : null;
+  const all = [...(rule ?? "").matchAll(/(?:<|>=)\s*(\d+)F/g)];
+  const last = all.at(-1);
+  // "outside 41F < 55F" is the outdoor test, not a minimum: only a comparison after "inside" counts
+  return last && /inside/.test(rule!.slice(0, last.index)) ? Number(last[1]) : null;
 }
 
 // CLAUDE.md "The law": $250-$500/day first violation, $500-$1,000/day repeat at the building

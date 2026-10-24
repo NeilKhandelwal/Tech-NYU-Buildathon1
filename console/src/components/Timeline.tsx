@@ -6,8 +6,8 @@ import { Card } from "./ui";
 const KIND: Record<EventType, { icon: string; label: string; tone: string }> = {
   intake_call: { icon: "☎", label: "Intake call", tone: "bg-blue-100 text-blue-900" },
   submitted: { icon: "✓", label: "Resident confirmed and submitted", tone: "bg-blue-100 text-blue-900" },
-  sms_out: { icon: "✉", label: "Text sent", tone: "bg-slate-100 text-slate-700" },
-  sms_in: { icon: "✉", label: "Text received", tone: "bg-emerald-100 text-emerald-800" },
+  sms_out: { icon: "✉", label: "Message sent", tone: "bg-slate-100 text-slate-700" },
+  sms_in: { icon: "✉", label: "Message received", tone: "bg-emerald-100 text-emerald-800" },
   caseworker_action: { icon: "✎", label: "Caseworker action", tone: "bg-blue-900 text-white" },
   callback_call: { icon: "☎", label: "Callback call", tone: "bg-blue-100 text-blue-900" },
   resident_response: { icon: "↩", label: "Resident answered", tone: "bg-emerald-100 text-emerald-800" },
@@ -18,7 +18,10 @@ function detail(e: CaseEvent): string | null {
   const p = e.payload ?? {};
   if (e.type === "caseworker_action") return ACTIONS.find((a) => a.value === p.action)?.label ?? null;
   if (e.type === "resident_response") return RESPONSE_LABEL[p.response] ?? p.response ?? null;
-  if (e.type === "callback_call") return e.text_original ? "Call ended, transcript saved" : "Dialing the resident";
+  if (e.type === "callback_call") {
+    if (e.payload?.stage === "ended" || e.text_original) return e.text_original ? "Call ended, transcript saved" : "Call ended";
+    return "Dialing the resident";
+  }
   if (e.type === "sms_out" && p.status && p.status !== "sent") return "not delivered, shown here only";
   return null;
 }

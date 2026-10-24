@@ -16,7 +16,10 @@ export function callState(events: CaseEvent[]): CallState {
   const after = events.filter((e) => e.created_at >= lastAction.created_at);
   const dialed = after.some((e) => e.type === "callback_call");
   const answered = after.some((e) => e.type === "resident_response");
-  const ended = after.some((e) => e.type === "callback_call" && e.text_original);
+  // the webhook marks its event stage "ended"; a no-pickup call can end with an empty transcript
+  const ended = after.some(
+    (e) => e.type === "callback_call" && (e.payload?.stage === "ended" || e.text_original),
+  );
   if (ended) return answered ? "done" : "no_answer";
   if (answered) {
     // a call is over within minutes; an answer this old whose post-call webhook never came
