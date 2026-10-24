@@ -111,6 +111,13 @@ def test_complaint_types_match_the_backend():
     assert provision.COMPLAINT_TYPES == re.findall(r'"(\w+)"', body)
 
 
+def test_followups_match_the_backend():
+    """The resident chose text or call on the phone; a value hc.py doesn't know would lose
+    that choice and the caseworker would follow up the wrong way."""
+    body = re.search(r"FOLLOWUPS = [[(](.*?)[])]", HC.read_text(), re.S).group(1)
+    assert provision.FOLLOWUPS == re.findall(r'"(\w+)"', body)
+
+
 def test_agents_run_a_model_that_does_not_think_aloud():
     """The first live call ran ElevenLabs' default reasoning model, which spoke its reasoning
     to the caller; both agents must pin a model with reasoning off."""

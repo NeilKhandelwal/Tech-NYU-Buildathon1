@@ -31,6 +31,8 @@ LANGUAGES = ["hi", "es", "zh", "bn", "ru", "ko", "ar", "fr"]
 # hc.py's COMPLAINT_TYPES: heat plus the EffiGov take-home's city-service types; checked by test_provision
 COMPLAINT_TYPES = ["heat", "hot_water", "missed_pickup", "pothole", "streetlight", "water", "animal",
                    "noise", "other"]
+# hc.py's FOLLOWUPS: how the resident wants the caseworker's update; checked by test_provision
+FOLLOWUPS = ["text", "call"]
 # a non-reasoning model: deepseek-v41-flash (ElevenLabs' default) spoke its reasoning aloud on
 # the first live call. Haiku with reasoning off answers fast and keeps tool use silent.
 LLM = {"llm": "claude-haiku-5-5", "reasoning_effort": "none"}
@@ -53,6 +55,8 @@ INTAKE_PROMPT = textwrap.dedent(
     - Only say words meant for the caller. Never describe your reasoning, your rules, your
       tools or what you are about to do. Never use bracketed tags like [happy].
     - Don't repeat back what they just said unless you are reading the case back at the end.
+    - You are a man: in Hindi and other languages that mark gender, use masculine forms
+      ("कर सकता हूँ", "पूछ रहा हूँ").
 
     Collect, skipping anything already given:
     1. What the problem is. Pick complaint_type from: {", ".join(COMPLAINT_TYPES)}.
@@ -63,6 +67,8 @@ INTAKE_PROMPT = textwrap.dedent(
        cold (very cold = 55, cold = 60, a little cold = 64).
     5. Whether the number they are calling from ({{{{system__caller_id}}}}) is the best number
        to call back. If not, take one and read the ten digits back once.
+    6. How they want the caseworker's update: "Would you like the update by text message,
+       or should the caseworker call you?" followup is "text" or "call".
 
     Then:
     - Call create_case. language is a code like "hi" and language_label its English name
@@ -70,12 +76,20 @@ INTAKE_PROMPT = textwrap.dedent(
     - Only for heat: call check_violation with the case_id create_case returned. If
       is_violation is true, say in one sentence that this may break the city heat rules.
       Never say it is definitely illegal and never give legal advice.
-    - Read the case back in one or two sentences and ask if you should send it to the city.
-      Only if they clearly say yes, call submit_case with resident_confirmed true. If they
-      say no, thank them and end.
-    - After submit_case, say the case number slowly, digit by digit, tell them they'll get
-      a text and a caseworker will call back in their language, say goodbye and call
-      end_call.
+
+    Wrapping up (the case is not sent until submit_case, so never say it is filed before):
+    - Read it back in one sentence starting "Here's what I have:" (problem, address, and
+      text or call), then ask "Should I send this to the city?" If they seem unsure, ask
+      once more in simpler words. Only if they clearly say yes, call submit_case with
+      resident_confirmed true. If they say no, ask what to change, or thank them and end.
+    - After submit_case, say it's sent and give the case number one character at a time,
+      zeros included: HC-058652 is "H, C, zero, five, eight, six, five, two". Then one
+      sentence on what happens next: they'll get a text with the case number now, and a
+      caseworker will review it and follow up in their language by text or by phone, as
+      they chose.
+    - Ask "Is there anything else I can help you with?" If yes, help with that (a new
+      problem is a new case). If no, say one short goodbye and call end_call in that same
+      turn, with nothing after it.
     If a tool returns an error, do what it says (usually: ask again).
 
     Safety: if anyone is in danger (gas smell, fire, someone sick from the cold, a baby in
@@ -120,7 +134,9 @@ CALLBACK_PROMPT = textwrap.dedent(
     4. Call record_resident_response with response = "confirmed", "reschedule", or
        "question", note_original = what they said in their words, note_en = an English
        translation.
-    5. Tell them they will get a text confirming this, thank them, and call end_call.
+    5. Say back in one sentence what you recorded, tell them they will get a text
+       confirming it, and ask if there is anything else for the caseworker (record that as
+       a question). Then say one short goodbye and call end_call in that same turn.
 
     If they ask something you cannot answer from the message, say you will pass the
     question to the caseworker and record it with response = "question".
@@ -171,6 +187,7 @@ TOOLS = {
          "unit": llm("apartment number"),
          "days_without_heat": llm("days the heat has been out or too low", "integer"),
          "indoor_f": llm("indoor temperature in degrees Fahrenheit (estimated if needed)", "number"),
+         "followup": {**llm("how the resident wants the caseworker's update"), "enum": FOLLOWUPS},
          "conversation_id": session("system__conversation_id")},
         ["complaint_type", "resident_phone", "language", "address"],
     ),
