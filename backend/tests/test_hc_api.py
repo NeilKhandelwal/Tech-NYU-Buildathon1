@@ -277,3 +277,26 @@ def test_close_takes_a_case_off_the_queue_and_reopen_puts_it_back(api):
     assert len(closes) == 1 and closes[0]["payload"]["from"] == "callback_requested"
     assert api.post(f"/api/cases/{case_id}/reopen").json() == {"ok": True}
     assert hcdb.get_case(case_id)["status"] == "callback_requested"
+
+
+def test_a_later_question_does_not_overwrite_the_answer(api):
+    """Live: "I'll be home" was recorded as confirmed, then "no, nothing else" as question;
+    the console flipped to question and a second receipt went out."""
+    case_id = new_case(api)["case_id"]
+    api.post(f"/api/cases/{case_id}/action", json={"caseworker_action": "schedule_inspection",
+                                                    "caseworker_message_en": "Tuesday 10-2."})
+    rec = lambda r, note: api.post("/api/tools/record_resident_response", json={
+        "case_id": case_id, "response": r, "note_original": note, "note_en": note}).json()
+    assert rec("confirmed", "I will be home") == {"ok": True}
+    assert rec("question", "No, nothing else") == {"ok": True}
+    assert hcdb.get_case(case_id)["resident_response"] == "confirmed"
+    assert [k for _, k, _ in api.sent].count("receipt") == 1
+    assert "No, nothing else" in [e["text_en"] for e in hcdb.list_events(case_id) if e["type"] == "note"]
+    # a real change of answer still lands
+    assert rec("reschedule", "Actually, Wednesday") == {"ok": True}
+    assert hcdb.get_case(case_id)["resident_response"] == "reschedule"
+    # a new caseworker action starts a new round, where a question is the answer
+    api.post(f"/api/cases/{case_id}/action", json={"caseworker_action": "need_more_info",
+                                                    "caseworker_message_en": "Which unit?"})
+    rec("question", "Do you mean my apartment number?")
+    assert hcdb.get_case(case_id)["resident_response"] == "question"

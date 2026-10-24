@@ -271,6 +271,17 @@ class ResidentResponse(BaseModel):
     note_en: str | None = None
 
 
+def answered_this_callback(case_id) -> bool:
+    """Whether the resident already gave an answer since the caseworker's latest action."""
+    seen = False
+    for e in hcdb.list_events(case_id):  # oldest first
+        if e["type"] == "caseworker_action":
+            seen = False  # a new action is a new round: its first answer counts again
+        elif e["type"] == "resident_response":
+            seen = True
+    return seen
+
+
 @app.post("/api/tools/record_resident_response", dependencies=[Depends(tool_auth)])
 async def record_resident_response(body: ResidentResponse) -> dict:
     if body.response not in RESPONSES:
@@ -278,6 +289,13 @@ async def record_resident_response(body: ResidentResponse) -> dict:
     case = hcdb.get_case(body.case_id)
     if case is None:
         return {"ok": False, "error": "no case with that case_id"}
+    if body.response == "question" and answered_this_callback(case["id"]):
+        # live, the agent recorded "confirmed", then recorded "question" for "no, nothing
+        # else": the answer flipped on the console and a second receipt went out. Keep the
+        # answer; the follow-up words go on the timeline for the caseworker.
+        hcdb.add_event(case["id"], "note", "resident", text_original=body.note_original,
+                       text_en=body.note_en, payload={"kind": "followup", "response": "question"})
+        return {"ok": True}
     case = hcdb.update_case(case["id"], status="called_back", resident_response=body.response,
                             resident_response_note_en=body.note_en)
     hcdb.add_event(case["id"], "resident_response", "resident", text_original=body.note_original,
