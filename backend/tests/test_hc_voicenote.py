@@ -63,7 +63,7 @@ def test_voice_note_lands_on_the_case_as_text(api, monkeypatch):
         200, json={"text": "The heat is still off.", "language_code": "eng"})))
     case = make_case()
     assert inbound(api).status_code == 200
-    [event] = hcdb.list_events(case["id"])
+    [event] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "sms_in"]
     assert (event["type"], event["text_original"], event["text_en"]) == \
         ("sms_in", "The heat is still off.", "The heat is still off.")
     assert event["payload"]["voice_note"] and event["payload"]["transcribed"]
@@ -80,14 +80,14 @@ def test_a_retired_model_falls_back_to_the_next(api, monkeypatch):
     mock_http(monkeypatch, twilio_and(stt))
     case = make_case()
     inbound(api)
-    assert hcdb.list_events(case["id"])[0]["text_original"] == "Still cold."
+    assert [e for e in hcdb.list_events(case["id"]) if e["type"] == "sms_in"][0]["text_original"] == "Still cold."
 
 
 def test_an_untranscribable_note_is_still_shown(api, monkeypatch):
     mock_http(monkeypatch, twilio_and(lambda r: httpx.Response(500)))
     case = make_case()
     inbound(api)
-    [event] = hcdb.list_events(case["id"])
+    [event] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "sms_in"]
     assert event["text_original"] == voicenote.UNTRANSCRIBED
     assert event["payload"]["voice_note"] and not event["payload"]["transcribed"]
 
@@ -97,7 +97,7 @@ def test_typed_text_with_a_photo_is_untouched(api, monkeypatch):
     case = make_case()
     inbound(api, extra="&NumMedia=1&MediaUrl0=https%3A%2F%2Fapi.twilio.com%2Fx"
                        "&MediaContentType0=image%2Fjpeg", body="Thanks")
-    [event] = hcdb.list_events(case["id"])
+    [event] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "sms_in"]
     assert event["text_original"] == "Thanks" and "voice_note" not in event["payload"]
     assert seen == []  # nothing fetched or transcribed for a non-audio attachment
 
