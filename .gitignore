@@ -14,3 +14,9 @@ dashboard/AGENTS.md
 dashboard/CLAUDE.md
 console/AGENTS.md
 console/CLAUDE.md
+
+# local secrets, wherever they live; .env.example files stay tracked
+.env.local
+.env.*.local
+.env.*
+!.env.example
