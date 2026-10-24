@@ -67,13 +67,53 @@ def fetch(case_id) -> dict:
     return case
 
 
+# The two texts residents get, pre-written for the demo languages so they arrive in the
+# resident's language with no LLM. Any other language falls back to sms.py's translation.
+SMS = {
+    "es": {
+        "confirmation": "Heat Check: su queja por falta de calefacción {case_number} fue enviada al encargado de casos de la ciudad. Le llamaremos en español.",
+        "receipt": "Heat Check {case_number}: {action}. Su respuesta: {response}. Puede responder en cualquier momento.",
+        "actions": {"schedule_inspection": "se programará una inspección",
+                    "need_more_info": "el encargado de casos necesita más información",
+                    "emergency_repair": "el caso fue remitido para reparación de emergencia",
+                    "resolved": "el caso fue marcado como resuelto"},
+        "reviewed": "su caso fue revisado",
+        "responses": {"confirmed": "confirmó", "reschedule": "pidió otro horario",
+                      "question": "hizo una pregunta"},
+    },
+    "hi": {
+        "confirmation": "हीट चेक: बिना हीट की आपकी शिकायत {case_number} शहर के केसवर्कर को भेज दी गई है। हम आपको हिंदी में वापस कॉल करेंगे।",
+        "receipt": "हीट चेक {case_number}: {action}। आपका जवाब: {response}। आप कभी भी जवाब दे सकते हैं।",
+        "actions": {"schedule_inspection": "निरीक्षण तय किया जाएगा",
+                    "need_more_info": "केसवर्कर को और जानकारी चाहिए",
+                    "emergency_repair": "मामला आपातकालीन मरम्मत के लिए भेजा गया",
+                    "resolved": "मामला हल के रूप में दर्ज किया गया"},
+        "reviewed": "आपके मामले की समीक्षा की गई",
+        "responses": {"confirmed": "पुष्टि की", "reschedule": "दूसरा समय माँगा",
+                      "question": "एक सवाल पूछा"},
+    },
+}
+
+
+def localized(case: dict, kind: str) -> str | None:
+    """The pre-written text for this case's language, or None (English, or no template)."""
+    t = SMS.get(case["language"])
+    if t is None:
+        return None
+    if kind == "confirmation":
+        return t["confirmation"].format(case_number=case["case_number"])
+    action = t["actions"].get(case["caseworker_action"] or "", t["reviewed"])
+    response = t["responses"].get(case["resident_response"] or "", "")
+    return t["receipt"].format(case_number=case["case_number"], action=action, response=response)
+
+
 async def send_sms(case: dict, kind: str, text_en: str) -> None:
     if sms is None:  # lane B not merged yet: log what would have gone out
         hcdb.add_event(case["id"], "sms_out", "system", text_en=text_en,
                        payload={"kind": kind, "status": "skipped", "reason": "sms module missing"})
         return
     try:
-        await sms.send_sms(case, kind, text_en)
+        await sms.send_sms(case, kind, text_en, body=localized(case, kind))
     except Exception:  # a failed text must never fail the tool the agent is waiting on
         logger.exception("send_sms failed")
 

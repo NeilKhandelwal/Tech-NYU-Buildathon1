@@ -31,11 +31,13 @@ async def twilio_send(to_digits: str, body: str) -> tuple[str, str | None, str |
         return "failed", None, str(e)
 
 
-async def send_sms(case: dict, kind: str, text_en: str) -> dict:
-    """Translate, send, log. Returns the `sms_out` event."""
+async def send_sms(case: dict, kind: str, text_en: str, body: str | None = None) -> dict:
+    """Translate, send, log. Returns the `sms_out` event. `body` is a text already in the
+    resident's language (hc.py's pre-written templates): sent as-is, no LLM needed."""
     from app import hcdb  # lane A's module; imported late so this file loads without it
     lang = case.get("language") or "en"
-    body = text_en if llm.is_english(lang) else (await llm.translate(text_en, lang) or text_en)
+    if body is None:
+        body = text_en if llm.is_english(lang) else (await llm.translate(text_en, lang) or text_en)
     phone = "".join(c for c in case.get("resident_phone") or "" if c.isdigit())
     status, sid, error = await twilio_send(phone, body) if phone else ("failed", None, "no phone")
     if status != "sent":
