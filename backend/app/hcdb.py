@@ -224,6 +224,17 @@ def list_events(case_id) -> list[dict]:
         return [_row(r) for r in rows]
 
 
+def call_events_since(since: datetime) -> list[dict]:
+    """The live call log (app/live.py's call_started / transcript / call_ended rows) since a
+    time, oldest first, with or without a case: the console's Calls list and 'On the line'."""
+    with engine().begin() as conn:
+        rows = conn.execute(select(events)
+                            .where(events.c.type.in_(("call_started", "transcript", "call_ended")),
+                                   events.c.created_at >= since)
+                            .order_by(events.c.created_at).limit(5000))
+        return [_row(r) for r in rows]
+
+
 def find_case_by_phone(phone: str) -> dict | None:
     """The most recent case for a phone number, stored digits-only."""
     with engine().begin() as conn:
