@@ -1,4 +1,4 @@
-# City services line — an ElevenLabs voice agent that files cases while you talk
+# CityLine (placeholder name) — an ElevenLabs voice agent that files cases while you talk
 
 A voice intake line for local-government service requests, with a live case desk.
 

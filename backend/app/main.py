@@ -38,7 +38,8 @@ def cors_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-app = FastAPI(title="EffiGov cases", lifespan=lifespan)
+# placeholder product name, as in dashboard/src/lib/brand.ts
+app = FastAPI(title="CityLine cases", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),  # read once, at import

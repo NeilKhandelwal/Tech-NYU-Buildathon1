@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { setActor, useLiveRefresh } from "@/lib/api";
+import { APP_NAME } from "@/lib/brand";
 
 const NOOP = () => {};
 
@@ -29,7 +30,7 @@ export default function Nav({ name }: { name: string | null }) {
     <header className="bg-slate-900 text-white">
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center gap-8">
         <Link href="/" className="flex items-baseline gap-2">
-          <span className="font-semibold tracking-tight text-lg">EffiGov</span>
+          <span className="font-semibold tracking-tight text-lg">{APP_NAME}</span>
           <span className="text-slate-400 text-sm">Case Desk</span>
         </Link>
         <nav className="flex gap-1 text-sm">
