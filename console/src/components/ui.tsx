@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { COMPLAINT_LABEL, STATUS_LABEL, complaintOf, isHeat, type Case, type Priority, type Status } from "@/lib/types";
 
-export function Card({ title, children, className = "", aside }: {
+export function Card({ title, children, className = "", aside, flush }: {
   title: string;
   children: ReactNode;
   className?: string;
   aside?: ReactNode;
+  flush?: boolean; // content runs edge to edge (the map), no inner padding
 }) {
   return (
     <section className={`rounded-lg border border-slate-200 bg-white ${className}`}>
@@ -13,7 +14,7 @@ export function Card({ title, children, className = "", aside }: {
         <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
         {aside}
       </header>
-      <div className="px-4 py-3">{children}</div>
+      <div className={flush ? "" : "px-4 py-3"}>{children}</div>
     </section>
   );
 }

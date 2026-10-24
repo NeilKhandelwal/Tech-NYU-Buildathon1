@@ -42,6 +42,9 @@ export type Case = {
   address: string;
   unit: string | null;
   borough: string | null;
+  // the API geocodes the address when the case is filed (NYC GeoSearch); null on older seeds
+  lat: number | null;
+  lon: number | null;
   days_without_heat: number | null;
   indoor_f: number | null;
   outdoor_f: number | null;
