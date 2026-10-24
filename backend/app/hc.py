@@ -10,6 +10,7 @@ ElevenLabs dialing and translation are reused from the tenant-advocate modules.
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,12 +20,23 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import elevenlabs, hcdb, heat
+from app import elevenlabs, hcdb, heat, live
+from app.llm import HEAT, is_heat
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 logger = logging.getLogger("heatcheck")
 
-app = FastAPI(title="Heat Check API")
+
+@asynccontextmanager
+async def lifespan(_app):
+    # the live call log the console shows; off without an ElevenLabs key (and so in tests)
+    task = live.start()
+    yield
+    if task:
+        task.cancel()
+
+
+app = FastAPI(title="Heat Check API", lifespan=lifespan)
 # the dashboard is on Vercel and calls action/callback from the browser; nothing here is
 # secret to read (the data is the demo's), so any origin may call
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -50,6 +62,16 @@ ACTIONS = {"schedule_inspection": "an inspection will be scheduled",
 RESPONSES = {"confirmed": "confirmed", "reschedule": "asked for another time",
              "question": "asked a question"}
 FINE_RANGE = "$250-$500 per day"  # first violation (CLAUDE.md "The law"); repeats cost more
+# The 311 problems the line takes: heat (which keeps the HPD rule check) plus the old CityLine
+# list. Third copy on purpose, like RESPONSES: agent/provision.py's enum (test_provision checks
+# it against this one) and console/src/lib/types.ts; Python and TypeScript can't share a file.
+ISSUE_TYPES = {"heat_hot_water": "no heat or hot water", "missed_pickup": "missed trash pickup",
+               "pothole": "pothole", "streetlight": "streetlight out", "water": "water problem",
+               "animal": "animal problem", "other": "other problem"}
+
+
+def issue_label(case: dict) -> str:
+    return ISSUE_TYPES.get(case.get("issue_type") or HEAT, "other problem")
 
 
 def tool_auth(x_tool_secret: str = Header("")) -> None:
@@ -101,6 +123,8 @@ def localized(case: dict, kind: str) -> str | None:
     if t is None:
         return None
     if kind == "confirmation":
+        if not is_heat(case):
+            return None  # the template says "no heat"; sms.py translates the generic one instead
         return t["confirmation"].format(case_number=case["case_number"])
     action = t["actions"].get(case["caseworker_action"] or "", t["reviewed"])
     response = t["responses"].get(case["resident_response"] or "", "")
@@ -141,6 +165,10 @@ class CreateCase(BaseModel):
     language_label: str | None = None
     address: str | None = None
     unit: str | None = None
+    # one of ISSUE_TYPES; unset means heat, which is all the line took before (and what an
+    # agent provisioned before this field existed still files)
+    issue_type: str | None = None
+    description: str | None = None
     days_without_heat: int | None = None
     indoor_f: float | None = None
     # not in the contract's list: the agent passes {{system__conversation_id}} so the post-call
@@ -156,13 +184,18 @@ async def create_case(body: CreateCase) -> dict:
         # a 200 with a reason, not a 422: the agent can ask again instead of going silent
         return {"error": f"missing or invalid: {', '.join(missing)}; ask the resident again"}
     language = (body.language or "en").strip().lower().split("-")[0]
+    issue = (body.issue_type or HEAT).strip().lower()
     case = hcdb.insert_case(
         resident_name=body.resident_name, resident_phone=phone, language=language,
         language_label=body.language_label or LANGUAGE_LABELS.get(language, language),
-        address=address, unit=body.unit, days_without_heat=body.days_without_heat,
-        indoor_f=body.indoor_f, **(await geocode(address)))
+        address=address, unit=body.unit, issue_type=issue if issue in ISSUE_TYPES else "other",
+        description=(body.description or "").strip() or None,
+        days_without_heat=body.days_without_heat, indoor_f=body.indoor_f,
+        **(await geocode(address)))
     hcdb.add_event(case["id"], "intake_call", "intake_agent",
                    payload={"conversation_id": body.conversation_id})
+    # the live log has been writing this call's lines with no case; attach them now
+    hcdb.link_conversation(body.conversation_id, case["id"])
     return {"case_id": case["id"], "case_number": case["case_number"]}
 
 
@@ -188,6 +221,8 @@ async def check_violation(body: CheckViolation) -> dict:
     case = hcdb.get_case(body.case_id)
     if case is None:
         return {"error": "no case with that case_id; call create_case first"}
+    if not is_heat(case):
+        return {"error": "the heat rule only applies to no heat or hot water; skip this check"}
     indoor = body.indoor_f if body.indoor_f is not None else case["indoor_f"]
     if indoor is None:
         return {"error": "no indoor temperature yet; ask the resident what their thermometer reads"}
@@ -223,8 +258,9 @@ async def submit_case(body: SubmitCase, tasks: BackgroundTasks) -> dict:
         # building + priority after the response, so the case reaches the console complete
         # while the resident is still on the line (webhooks.enrich never raises)
         tasks.add_task(webhooks.enrich, case["id"])
+        what = "no-heat complaint" if is_heat(case) else f"report ({issue_label(case)})"
         await send_sms(case, "confirmation",
-                       f"Heat Check: your no-heat complaint {case['case_number']} was sent to the "
+                       f"Heat Check: your {what} {case['case_number']} was sent to the "
                        f"city caseworker. We'll call you back in {case['language_label']}.")
     return {"ok": True, "case_number": case["case_number"]}
 
@@ -300,6 +336,7 @@ async def callback(case_id: str) -> dict:
             {"case_id": case["id"], "resident_name": case["resident_name"] or "",
              "language": case["language"], "language_label": case["language_label"] or "",
              "case_number": case["case_number"], "address": case["address"],
+             "issue_label": issue_label(case),
              "caseworker_action": case["caseworker_action"] or "",
              "caseworker_message_en": case["caseworker_message_en"]},
             language=case["language"])

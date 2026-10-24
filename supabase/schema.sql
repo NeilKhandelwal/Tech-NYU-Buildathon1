@@ -39,6 +39,8 @@ create table events (
   created_at timestamptz default now(),
   type text not null,
     -- intake_call | submitted | sms_out | sms_in | caseworker_action | callback_call | resident_response | note
+    -- live call log (app/live.py): call_started | transcript | call_ended. These carry
+    -- payload.conversation_id and may have a null case_id until the agent files the case.
   actor text,                                   -- resident | intake_agent | callback_agent | caseworker | system
   text_original text,                           -- in resident's language where relevant
   text_en text,
@@ -56,3 +58,9 @@ create index if not exists events_conversation_id on events ((payload->>'convers
 -- would silently return nothing. Off means anyone with the anon key can read these demo rows.
 alter table cases disable row level security;
 alter table events disable row level security;
+
+-- All 311 types, not only heat (2026-10-24). Safe to run on the live project: it only adds
+-- columns, and existing rows (all heat) read as heat_hot_water while issue_type is null.
+alter table cases add column if not exists issue_type text;
+  -- heat_hot_water | missed_pickup | pothole | streetlight | water | animal | other
+alter table cases add column if not exists description text;  -- the resident's problem, in English

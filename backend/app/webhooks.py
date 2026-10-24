@@ -54,10 +54,18 @@ def collected_english(data: dict) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
+async def building_history(case: dict) -> dict | None:
+    # HPD violations and heat complaints describe a building's heating; they mean nothing for
+    # a pothole or a missed pickup
+    if not llm.is_heat(case):
+        return None
+    return await building.building_lookup(case.get("address") or "", case.get("borough"))
+
+
 async def process_intake(case: dict, data: dict) -> None:
     transcript = llm.transcript_text(data.get("transcript") or [])
     result = await llm.analyze(transcript, case)
-    found = await building.building_lookup(case.get("address") or "", case.get("borough"))
+    found = await building_history(case)
     fields = {
         "transcript_original": transcript,
         "transcript_en": result["transcript_en"] or collected_english(data),
@@ -80,7 +88,7 @@ async def enrich(case_id) -> None:
         case = hcdb().get_case(case_id)
         if case is None:
             return
-        found = await building.building_lookup(case.get("address") or "", case.get("borough"))
+        found = await building_history(case)
         fields = {"building": found, "priority": llm.priority(case, found)}
         if not case.get("suggested_action"):
             fields["suggested_action"] = llm.suggest(case)
