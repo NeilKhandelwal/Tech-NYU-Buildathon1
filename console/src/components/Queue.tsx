@@ -14,15 +14,16 @@ const FILTERS = {
 } satisfies Record<string, { label: string; keep: (c: Case) => boolean }>;
 type Filter = keyof typeof FILTERS;
 
-export function Queue({ cases, selectedId, onSelect, fresh, now }: {
+export function Queue({ cases, selectedId, onSelect, fresh, replied, now }: {
   cases: Case[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   fresh: Set<string>;
+  replied: Set<string>;
   now: number;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
-  const shown = cases.filter(FILTERS[filter].keep).sort(queueOrder);
+  const shown = cases.filter(FILTERS[filter].keep).sort((a, b) => queueOrder(a, b, replied));
 
   return (
     <aside className="flex w-[360px] shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -54,6 +55,9 @@ export function Queue({ cases, selectedId, onSelect, fresh, now }: {
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[15px] font-semibold text-slate-900">{c.case_number}</span>
+                {replied.has(c.id) && (
+                  <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">Resident replied</span>
+                )}
                 {fresh.has(c.id) && (
                   <span className="rounded bg-blue-900 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">New</span>
                 )}

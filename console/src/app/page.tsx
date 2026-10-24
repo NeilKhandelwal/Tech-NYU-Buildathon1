@@ -13,7 +13,7 @@ import { useConsole } from "@/lib/useConsole";
 const NONE = new Set<string>();
 
 export default function ConsolePage() {
-  const { cases, events, selectedId, select, live, error, flash, fresh, configured } = useConsole();
+  const { cases, events, selectedId, select, live, error, flash, fresh, replied, configured } = useConsole();
   const [now, setNow] = useState(() => Date.now());
 
   // ages and "avg wait" tick on their own; no data refetch involved
@@ -47,7 +47,7 @@ export default function ConsolePage() {
       <Header cases={cases} live={live} now={now} />
       {error && <div className="bg-red-50 px-6 py-2 text-sm text-red-800">{error}</div>}
       <div className="flex min-h-0 flex-1">
-        <Queue cases={cases} selectedId={selectedId} onSelect={select} fresh={fresh} now={now} />
+        <Queue cases={cases} selectedId={selectedId} onSelect={select} fresh={fresh} replied={replied} now={now} />
         <main className="flex min-w-0 flex-1 flex-col">
           {c ? (
             <>
@@ -62,7 +62,7 @@ export default function ConsolePage() {
                   </div>
                   <div className="space-y-4">
                     <ViolationCard c={c} flash={f} />
-                    <SmsPanel events={events} phone={c.resident_phone} fresh={fresh} />
+                    <SmsPanel key={c.id} caseId={c.id} events={events} phone={c.resident_phone} languageLabel={c.language_label ?? c.language} fresh={fresh} />
                   </div>
                 </div>
               </div>

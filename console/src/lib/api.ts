@@ -1,6 +1,6 @@
 import type { CaseworkerAction } from "./types";
 
-const API = (process.env.NEXT_PUBLIC_API_URL ?? "https://heatcheck-nyu.fly.dev").replace(/\/$/, "");
+export const API = (process.env.NEXT_PUBLIC_API_URL ?? "https://heatcheck-nyu.fly.dev").replace(/\/$/, "");
 
 async function post(path: string, body: unknown) {
   const r = await fetch(`${API}${path}`, {
@@ -23,4 +23,9 @@ export function saveAction(caseId: string, action: CaseworkerAction, message: st
 
 export function startCallback(caseId: string): Promise<{ ok: boolean; conversation_id: string }> {
   return post(`/api/cases/${caseId}/callback`, {});
+}
+
+// The caseworker's own message, written in English; the backend translates and sends it
+export function sendText(caseId: string, textEn: string) {
+  return post(`/api/cases/${caseId}/sms`, { text_en: textEn });
 }

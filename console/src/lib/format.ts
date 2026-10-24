@@ -31,9 +31,12 @@ export function nyClock(iso: string) {
 const RANK: Record<Priority, number> = { urgent: 0, high: 1, normal: 2 };
 
 // DASHBOARD.md: urgent, then high, then newest
-export function queueOrder(a: Case, b: Case) {
+export function queueOrder(a: Case, b: Case, replied: Set<string> = new Set()) {
   const p = RANK[a.priority ?? "normal"] - RANK[b.priority ?? "normal"];
-  return p !== 0 ? p : Date.parse(b.created_at) - Date.parse(a.created_at);
+  if (p !== 0) return p;
+  // within a priority, a case the resident just answered rises above the rest
+  const r = Number(replied.has(b.id)) - Number(replied.has(a.id));
+  return r !== 0 ? r : Date.parse(b.created_at) - Date.parse(a.created_at);
 }
 
 // The legal minimum the backend's rule_text() wrote, e.g. "... inside 61F < 68F" -> 68.
