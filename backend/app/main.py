@@ -1,10 +1,9 @@
 import json
 import logging
 import os
-import re
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import get_args
 
 import httpx
@@ -14,12 +13,13 @@ from fastapi import (FastAPI, Header, HTTPException, Request, Response, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import insert, select, update
 
-from app import codes, db, elevenlabs
+from app import codes, db, elevenlabs, heat, missions, outbound
 from app.models import (Call, CallCaseLink, CallCreate, CallDetail, CallStatus, CallUpdate, Case,
                         CaseCreate, CaseCreated, CaseEvent, CaseUpdate, IssueType, NoteCreate,
                         Stats, ToolAddNote, ToolCreateCase, ToolLookupCase, ToolResult,
                         ToolTransfer, ToolUpdateCase, TranscriptCreate, TranscriptLine,
                         VoiceSession)
+from app.shared import BACKEND_DOWN, broadcast, clients, digits, now, tool, voice_auth
 
 logger = logging.getLogger("backend")
 
@@ -40,6 +40,9 @@ def cors_origins() -> list[str]:
 
 # placeholder product name, as in dashboard/src/lib/brand.ts
 app = FastAPI(title="CityLine cases", lifespan=lifespan)
+# the tenant-advocate routers (CONTRACT "## Tenant advocate"): one module per lane
+for module in (missions, heat, outbound):
+    app.include_router(module.router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),  # read once, at import
@@ -47,20 +50,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# module-level set: single-process demo, so every client is in this one process
-clients: set[WebSocket] = set()
-
-# same reason: one process, so this dict is the whole rate limiter. Call id -> wrong codes tried.
+# single-process demo, so this dict is the whole rate limiter. Call id -> wrong codes tried.
 lookup_misses: dict[str, int] = {}
-
-
-async def broadcast(type: str, id: str) -> None:
-    frame = json.dumps({"type": type, "id": id})
-    for ws in list(clients):
-        try:
-            await ws.send_text(frame)
-        except Exception:
-            clients.discard(ws)  # dead socket; drop it and keep going
 
 
 @app.websocket("/ws")
@@ -74,14 +65,6 @@ async def ws_endpoint(ws: WebSocket):
         pass
     finally:
         clients.discard(ws)
-
-
-def now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def digits(phone: str) -> str:
-    return re.sub(r"\D", "", phone)
 
 
 # 64 is a name, not a payload: the header is trusted (no backend auth yet), so what it
@@ -456,16 +439,7 @@ def stats(since: str | None = None, until: str | None = None) -> Stats:
 # calls.current_case_id is the case being worked, call_cases.how says whether this call
 # created it, and the case's own fields say whether it is filed.
 
-BACKEND_DOWN = "I couldn't reach the case system right now, please try again later."
 ISSUE_TYPES = get_args(IssueType)
-
-
-def voice_auth(secret: str) -> None:
-    expected = os.environ.get("VOICE_TOOL_SECRET")
-    if not expected:  # an unset secret must not mean an open endpoint on a public tunnel
-        raise HTTPException(status_code=503, detail="VOICE_TOOL_SECRET not set (see backend/.env.example)")
-    if not secrets.compare_digest(secret, expected):
-        raise HTTPException(status_code=401, detail="bad X-Voice-Secret")
 
 
 def filed(case: Case) -> bool:
@@ -502,15 +476,6 @@ async def voice_session() -> VoiceSession:
         raise HTTPException(status_code=502, detail=f"ElevenLabs token request failed: {e}")
     call = await create_call(CallCreate())  # only once the token is in hand: no orphan calls
     return VoiceSession(call_id=call.id, token=token)
-
-
-async def tool(run, call_id: str) -> ToolResult:
-    """Run one tool. A missing call or case reads as an outage to the caller, not a crash."""
-    try:
-        return ToolResult(result=await run())
-    except HTTPException:
-        logger.warning("voice tool on unknown call %s", call_id)
-        return ToolResult(result=BACKEND_DOWN)
 
 
 @app.post("/voice/tools/create_case")

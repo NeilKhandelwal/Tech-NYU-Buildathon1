@@ -8,7 +8,7 @@ from sqlalchemy.engine import Engine
 
 # The tables that carry a city_id. call_cases and transcript hang off a call that was
 # already fetched under the city scope, so they have no column to filter on.
-CITY_TABLES = ("cases", "calls", "case_events")
+CITY_TABLES = ("cases", "calls", "case_events", "missions")
 _READS_CITY_TABLE = re.compile(r'\b(?:from|join)\s+"?(?:%s)"?\b' % "|".join(CITY_TABLES))
 _HAS_CITY_CRITERION = re.compile(r"city_id\s*(?:=|in\b)")
 

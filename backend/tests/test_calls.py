@@ -8,7 +8,8 @@ def test_call_lifecycle_sets_ended_at(client):
     call = r.json()
     assert call == {"id": "CALL-1", "case_id": None, "case_ids": [], "status": "active",
                     "started_at": call["started_at"], "ended_at": None, "room": None,
-                    "updated_at": call["started_at"], "summary": None, "transfer_reason": None}
+                    "updated_at": call["started_at"], "summary": None, "transfer_reason": None,
+                    "mission_id": None, "kind": None, "conversation_id": None}
     assert client.post("/calls/CALL-1/transcript", json={"role": "user", "text": "hi"}).status_code == 201
     ended = client.patch("/calls/CALL-1", json={"status": "ended"}).json()
     assert ended["status"] == "ended" and ended["ended_at"].endswith("Z")

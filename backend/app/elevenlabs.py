@@ -50,3 +50,23 @@ def signature_ok(raw_body: bytes, header: str | None, secret: str,
         return False
     expected = hmac.new(secret.encode(), ts.encode() + b"." + raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, values.get("v0", ""))
+
+
+async def outbound_call(agent_id: str, to_number: str, dynamic_variables: dict,
+                        language: str | None = None) -> str:
+    """Dial `to_number` (10 US digits) from our imported Twilio number with `agent_id`, and
+    return the ElevenLabs conversation id. Raises NotConfigured or httpx.HTTPError; the
+    caller decides what that means for its call row."""
+    client_data: dict = {"dynamic_variables": dynamic_variables}
+    if language:
+        # the agent must allow the language override (provision.py sets it)
+        client_data["conversation_config_override"] = {"agent": {"language": language}}
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.post(f"{API}/v1/convai/twilio/outbound-call",
+                              headers={"xi-api-key": env("ELEVENLABS_API_KEY")},
+                              json={"agent_id": agent_id,
+                                    "agent_phone_number_id": env("ELEVENLABS_PHONE_NUMBER_ID"),
+                                    "to_number": "+1" + to_number,
+                                    "conversation_initiation_client_data": client_data})
+        r.raise_for_status()
+        return r.json()["conversation_id"]
