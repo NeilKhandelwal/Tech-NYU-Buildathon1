@@ -295,6 +295,10 @@ AGENTS = {
         "built_in": {"end_call": system_tool("end_call")},
         # hc.py's /callback sets the resident's language, which ElevenLabs refuses unless allowed
         "overrides": True,
+        # Sonnet 5 wrote record_resident_response out as <invoke> text instead of calling it
+        # (Neil's 14:4x callback, and 3 of 4 simulations), so the answer never reached us;
+        # Haiku 5.5 made a real call in 4 of 4 and in every live call
+        "llm": {"llm": "claude-haiku-5-5", "reasoning_effort": "none"},
         # what hc.py's /api/cases/:id/callback sends
         "variables": {"case_id", "resident_name", "language", "language_label", "case_number",
                       "address", "caseworker_action", "caseworker_message_en"},
@@ -330,7 +334,7 @@ def agent_config(key: str, tool_ids: list[str]) -> dict:
                 "first_message": agent["first_message"],
                 "language": "en",
                 "prompt": {"prompt": agent["prompt"], "tool_ids": tool_ids,
-                           "built_in_tools": agent["built_in"], **LLM},
+                           "built_in_tools": agent["built_in"], **agent.get("llm", LLM)},
             },
             # expressive mode has ElevenLabs tell the model to add emotion tags; on the 14:34
             # call Sonnet 5 wrote "[थोड़ा हैरान]" and "[राहत]" into its Hindi replies
