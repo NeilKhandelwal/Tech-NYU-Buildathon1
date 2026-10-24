@@ -67,6 +67,19 @@ def test_agents_only_name_variables_their_calls_send():
         assert provision.referenced_variables(agent) <= agent["variables"], key
 
 
+def test_issue_types_match_the_backend():
+    """hc.py files anything outside ISSUE_TYPES as "other"; drift would misfile every report."""
+    body = HC.read_text().split("ISSUE_TYPES = {", 1)[1].split("}", 1)[0]
+    assert provision.ISSUE_TYPES == re.findall(r'"(\w+)":', body)
+    assert provision.TOOLS["create_case"][1]["issue_type"]["enum"] == provision.ISSUE_TYPES
+
+
+def test_the_heat_rule_is_only_for_heat():
+    """check_violation refuses other problems; the prompt must not send them there."""
+    assert "Never call check_violation" in provision.INTAKE_PROMPT
+    assert "issue_type" in provision.TOOLS["create_case"][2]
+
+
 def test_callback_variables_are_what_the_backend_dials_with():
     source = HC.read_text().split("async def callback", 1)[1]
     for var in provision.AGENTS["callback"]["variables"]:
