@@ -12,3 +12,5 @@ agent/worker.log
 # written into dashboard/ by the Next 16 dev server, not by us
 dashboard/AGENTS.md
 dashboard/CLAUDE.md
+console/AGENTS.md
+console/CLAUDE.md

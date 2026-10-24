@@ -10,6 +10,7 @@ ElevenLabs dialing and translation are reused from the tenant-advocate modules.
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,12 +20,22 @@ from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app import elevenlabs, hcdb, heat
+from app import elevenlabs, hcdb, heat, live
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 logger = logging.getLogger("heatcheck")
 
-app = FastAPI(title="CityLine API")  # renamed from Heat Check at 13:15
+
+@asynccontextmanager
+async def lifespan(_app):
+    # the live call log the console shows; off without an ElevenLabs key (and so in tests)
+    task = live.start()
+    yield
+    if task:
+        task.cancel()
+
+
+app = FastAPI(title="CityLine API", lifespan=lifespan)  # renamed from Heat Check at 13:15
 # the dashboard is on Vercel and calls action/callback from the browser; nothing here is
 # secret to read (the data is the demo's), so any origin may call
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -180,6 +191,8 @@ async def create_case(body: CreateCase) -> dict:
         indoor_f=body.indoor_f, **(await geocode(address)))
     hcdb.add_event(case["id"], "intake_call", "intake_agent",
                    payload={"conversation_id": body.conversation_id})
+    # the live log has been writing this call's lines with no case; attach them now
+    hcdb.link_conversation(body.conversation_id, case["id"])
     return {"case_id": case["id"], "case_number": case["case_number"]}
 
 
