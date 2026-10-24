@@ -19,6 +19,11 @@ async def twilio_send(to_digits: str, body: str) -> tuple[str, str | None, str |
     if not (sid and token and from_):
         return "skipped", None, None
     to = "+" + to_digits if len(to_digits) == 11 else "+1" + to_digits[-10:]
+    # US texts from an unregistered number die with 30034 (A2P 10DLC takes days), so the demo
+    # sends over WhatsApp: same API, both ends prefixed, From is the sandbox number
+    if os.environ.get("TWILIO_CHANNEL") == "whatsapp":
+        to = "whatsapp:" + to
+        from_ = "whatsapp:" + os.environ.get("TWILIO_WHATSAPP_NUMBER", "+14155238886")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(TWILIO_URL.format(sid), auth=(sid, token),

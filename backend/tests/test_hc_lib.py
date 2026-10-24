@@ -127,6 +127,19 @@ def test_sms_sends_translated_body_through_twilio(db, monkeypatch):
         ("sent", "SM1", "आपका केस भेजा गया")
 
 
+def test_whatsapp_channel_prefixes_both_ends_and_uses_the_sandbox(db, monkeypatch):
+    no_llm(monkeypatch)
+    for k, v in (("TWILIO_ACCOUNT_SID", "AC1"), ("TWILIO_AUTH_TOKEN", "t"),
+                 ("TWILIO_PHONE_NUMBER", "+15550000000"), ("TWILIO_CHANNEL", "whatsapp")):
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("TWILIO_WHATSAPP_NUMBER", raising=False)
+    seen = mock_http(monkeypatch, sms, lambda r: httpx.Response(201, json={"sid": "SM1"}))
+    asyncio.run(sms.send_sms(make_case(db, language="en"), "receipt", "Receipt"))
+    [twilio] = seen
+    form = dict(x.split("=", 1) for x in twilio.content.decode().split("&"))
+    assert (form["To"], form["From"]) == ("whatsapp%3A%2B15551234567", "whatsapp%3A%2B14155238886")
+
+
 def test_twilio_rejection_is_logged_not_raised(db, monkeypatch):
     """A trial account texting an unverified phone fails; the call flow must carry on."""
     no_llm(monkeypatch)
