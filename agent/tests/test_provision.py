@@ -126,6 +126,12 @@ def test_listening_words_do_not_cut_the_agent_off():
         assert {"हाँ", "अच्छा", "जी", "haan", "ok"} <= set(turn["interruption_ignore_terms"]), key
 
 
+def test_no_expressive_tags():
+    """Expressive mode made the model write tags like "[राहत]" into what the caller hears."""
+    for key in provision.AGENTS:
+        assert provision.agent_config(key, [])["conversation_config"]["tts"]["expressive_mode"] is False, key
+
+
 def test_followups_match_the_backend():
     """The resident chose text or call on the phone; a value hc.py doesn't know would lose
     that choice and the caseworker would follow up the wrong way."""
