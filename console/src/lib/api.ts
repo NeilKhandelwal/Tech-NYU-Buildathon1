@@ -43,3 +43,13 @@ export function saveAction(caseId: string, action: CaseworkerAction, message: st
 export function startCallback(caseId: string): Promise<{ ok: boolean; conversation_id: string }> {
   return post(`/api/cases/${caseId}/callback`, {});
 }
+
+// The caseworker's own words, in English; the API translates them into the resident's language
+// and logs the sms_out, which the next poll shows in the panel
+export function sendText(caseId: string, textEn: string): Promise<CaseEvent> {
+  return post(`/api/cases/${caseId}/sms`, { text_en: textEn });
+}
+
+// Closing takes the case off the open queue (status resolved); the record and timeline stay.
+export const closeCase = (caseId: string) => post(`/api/cases/${caseId}/close`, {});
+export const reopenCase = (caseId: string) => post(`/api/cases/${caseId}/reopen`, {});

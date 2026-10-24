@@ -6,6 +6,7 @@ response, so ElevenLabs never times out and retries a call we already have.
 import json
 import logging
 import os
+import re
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
@@ -89,6 +90,22 @@ async def enrich(case_id) -> None:
         logger.exception("enrich failed for case %s", case_id)
 
 
+LEAKED_CALL = re.compile(r'<invoke name="record_resident_response">(.*?)(?:</invoke>|$)', re.S)
+PARAM = re.compile(r'<parameter name="(\w+)">(.*?)</parameter>', re.S)
+
+
+def leaked_response(turns: list[dict]) -> dict | None:
+    """The first record_resident_response the agent wrote out as text, as tool arguments."""
+    for t in turns:
+        if t.get("role") != "agent":
+            continue
+        for block in LEAKED_CALL.findall(t.get("message") or ""):
+            params = {k: v.strip() for k, v in PARAM.findall(block)}
+            if params.get("response") in ("confirmed", "reschedule", "question"):
+                return {k: params.get(k) for k in ("response", "note_original", "note_en")}
+    return None
+
+
 async def process_callback(case: dict, data: dict) -> None:
     transcript = llm.transcript_text(data.get("transcript") or [])
     english = transcript if llm.is_english(case.get("language")) else \
@@ -98,6 +115,13 @@ async def process_callback(case: dict, data: dict) -> None:
                  text_en=english, payload={"conversation_id": data.get("conversation_id"), "stage": "ended",
                                            "summary": (data.get("analysis") or {}).get("transcript_summary")})
     if not case.get("resident_response"):
+        leaked = leaked_response(data.get("transcript") or [])
+        if leaked:
+            # the model wrote the tool call as text instead of calling it (seen live with
+            # Sonnet 5): record the answer it meant, so an answered call isn't "no answer"
+            from app import hc  # late: hc imports this module
+            await hc.record_resident_response(hc.ResidentResponse(case_id=case["id"], **leaked))
+            return
         # the agent never recorded an answer: voicemail, hang-up or no pickup
         db.update_case(case["id"], resident_response="no_answer")
 

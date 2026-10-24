@@ -30,6 +30,8 @@ export default function ConsolePage() {
   const [now, setNow] = useState(() => Date.now());
   // a call with no case yet is selected by its conversation id; everything else by case id
   const [callId, setCallId] = useState<string | null>(null);
+  // the Next step panel's fold, kept here so it survives moving between cases
+  const [nextOpen, setNextOpen] = useState(true);
 
   // the live-call timers tick each second; ages and "avg wait" ride along, no refetch involved
   useEffect(() => {
@@ -77,7 +79,7 @@ export default function ConsolePage() {
 
   return (
     <div className="flex h-screen min-w-[1280px] flex-col">
-      <Header cases={cases} live={live} onLine={calls.filter((x) => x.live).length} now={now} />
+      <Header cases={cases} live={live} onLine={calls.filter((x) => x.live).length} now={now} c={c} />
       {error && <div className="bg-red-50 px-6 py-2 text-sm text-red-800">{error}</div>}
       <div className="flex min-h-0 flex-1">
         <Queue
@@ -124,14 +126,21 @@ export default function ConsolePage() {
                       onSelect={selectCase}
                     />
                     {isHeat(c) ? <ViolationCard c={c} flash={f} /> : <ReportCard c={c} flash={f} />}
-                    <SmsPanel events={events} phone={c.resident_phone} fresh={fresh} />
+                    <SmsPanel
+                      key={c.id} // a fresh composer per case: a half-typed message never jumps cases
+                      caseId={c.id}
+                      languageLabel={c.language_label ?? "their language"}
+                      events={events}
+                      phone={c.resident_phone}
+                      fresh={fresh}
+                    />
                   </div>
                 </div>
               </div>
-              <ActionPanel key={c.id} c={c} events={events} />
+              <ActionPanel key={c.id} c={c} events={events} open={nextOpen} onToggle={() => setNextOpen((o) => !o)} />
             </>
           ) : (
-            <div className="m-auto text-slate-400">
+            <div className="m-auto text-zinc-400">
               {cases.length || calls.length ? "Select a case or a call." : "Waiting for the first call…"}
             </div>
           )}

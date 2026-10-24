@@ -1,7 +1,7 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Map as MlMap, Marker } from "maplibre-gl";
 import type { LngLat } from "@/lib/geocode";
 import { COMPLAINT_LABEL, complaintOf, type Case } from "@/lib/types";
@@ -13,6 +13,11 @@ const NYC_CENTER: LngLat = [-73.94, 40.72];
 // a little past the five boroughs, so panning can't wander off to New Jersey's interior
 const NYC_BOUNDS: [LngLat, LngLat] = [[-74.4, 40.42], [-73.55, 41.0]];
 // px kept clear around the outermost pins; the right side also clears the zoom buttons
+// the expand glides the map's own element from its card slot to the case area and back
+const EXPAND_MS = 560;
+const EXPAND_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
+const EXPAND_INSET = 16; // px kept around the expanded map inside the case area
+
 const FIT_PADDING = { top: 28, bottom: 28, left: 28, right: 64 };
 const MAX_FIT_ZOOM = 13; // one or two pins shouldn't zoom to a single block
 const PIN_GAP = 18; // px: pins closer than this on screen are fanned apart
@@ -71,11 +76,13 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
   const lib = useRef<typeof import("maplibre-gl") | null>(null);
   const select = useRef(onSelect);
   const selected = useRef(selectedId);
+  const pointsRef = useRef(points);
   // the fit below waits for the style: fitting before load lands on the wrong size
   const [ready, setReady] = useState(false);
   useEffect(() => {
     select.current = onSelect;
     selected.current = selectedId;
+    pointsRef.current = points;
   });
 
   // maplibre touches window at import, so it loads in the browser only
@@ -173,6 +180,87 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
     m.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: MAX_FIT_ZOOM, duration: reduce ? 0 : 900 });
   }, [ready, frame]);
 
+  // Expanded or not, the map is one element: it goes position:fixed at its slot's rect, then
+  // animates to the case area's rect (and back), so maplibre never remounts. Its own
+  // ResizeObserver redraws the tiles as the box grows.
+  const slot = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [pose, setPose] = useState<CSSProperties | null>(null);
+  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const rectOf = (r: DOMRect): CSSProperties => ({ top: r.top, left: r.left, width: r.width, height: r.height });
+  const target = (): CSSProperties | null => {
+    const area = document.querySelector("main")?.getBoundingClientRect();
+    if (!area) return null;
+    return {
+      top: area.top + EXPAND_INSET,
+      left: area.left + EXPAND_INSET,
+      width: area.width - EXPAND_INSET * 2,
+      height: area.height - EXPAND_INSET * 2,
+    };
+  };
+  const motion = () =>
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "none"
+      : ["top", "left", "width", "height", "border-radius", "box-shadow"].map((p) => `${p} ${EXPAND_MS}ms ${EXPAND_EASE}`).join(", ");
+
+  // after either move, re-frame the pins for the map's new size
+  const refit = useCallback(() => {
+    const m = map.current;
+    const ml = lib.current;
+    if (!m || !ml) return;
+    m.resize();
+    const all = Object.values(pointsRef.current);
+    if (!all.length) return;
+    const bounds = new ml.LngLatBounds();
+    all.forEach((p) => bounds.extend(p));
+    m.fitBounds(bounds, { padding: FIT_PADDING, maxZoom: MAX_FIT_ZOOM, duration: 500 });
+  }, []);
+
+  const expand = useCallback(() => {
+    const from = slot.current?.getBoundingClientRect();
+    const to = target();
+    if (!from || !to) return;
+    clearTimeout(settle.current);
+    setExpanded(true);
+    setPose({ position: "fixed", ...rectOf(from), transition: "none", zIndex: 50 });
+    // two frames: the browser must paint the start rect before the transition has somewhere to go from
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => setPose({ position: "fixed", ...to, transition: motion(), zIndex: 50, borderRadius: 12 })),
+    );
+    settle.current = setTimeout(refit, EXPAND_MS);
+  }, [refit]);
+
+  const collapse = useCallback(() => {
+    const back = slot.current?.getBoundingClientRect();
+    if (!back) return;
+    clearTimeout(settle.current);
+    setPose({ position: "fixed", ...rectOf(back), transition: motion(), zIndex: 50, borderRadius: 0 });
+    setExpanded(false);
+    settle.current = setTimeout(() => {
+      setPose(null);
+      refit();
+    }, EXPAND_MS);
+  }, [refit]);
+
+  // Esc closes; a window resize while open re-targets the case area
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && collapse();
+    const onResize = () => {
+      const to = target();
+      if (to) setPose((p) => ({ ...p, ...to, transition: "none" }));
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [expanded, collapse]);
+
+  useEffect(() => () => clearTimeout(settle.current), []);
+
   const placed = cases.filter((c) => points[c.id]).length;
 
   return (
@@ -180,19 +268,49 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
       title="City map"
       aside={
         locating > 0 ? (
-          <span className="flex items-center gap-1.5 text-xs font-medium text-blue-900">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-blue-800" />
+          <span className="flex items-center gap-1.5 text-xs font-medium text-zinc-900">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-yellow-400" />
             {locating === 1 ? "1 call" : `${locating} calls`} locating…
           </span>
         ) : (
-          <span className="text-xs tabular-nums text-slate-500">{placed} of {cases.length} placed</span>
+          <span className="text-xs tabular-nums text-zinc-500">{placed} of {cases.length} placed</span>
         )
       }
-      className="overflow-hidden"
       flush
     >
-      <div ref={box} className="h-[230px] w-full bg-slate-100" />
-      <ul className="flex gap-4 border-t border-slate-100 px-4 py-2 text-xs text-slate-600">
+      <div ref={slot} className="relative h-[230px] w-full">
+        {/* the backdrop fades with the move; clicking it closes the map */}
+        <div
+          aria-hidden
+          onClick={collapse}
+          className={`fixed inset-0 z-40 bg-zinc-950/45 transition-opacity duration-500 ${
+            expanded ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        />
+        <div
+          style={pose ?? undefined}
+          className={`overflow-hidden bg-zinc-100 ${pose ? "" : "absolute inset-0"} ${expanded ? "shadow-[0_24px_60px_-12px_rgb(9_9_11/0.55)]" : ""}`}
+          role={expanded ? "dialog" : undefined}
+          aria-label={expanded ? "City map, expanded" : undefined}
+        >
+          <div ref={box} className="h-full w-full" />
+          <button
+            onClick={expanded ? collapse : expand}
+            aria-label={expanded ? "Close the map" : "Expand the map"}
+            className="absolute left-2 top-2 z-10 flex h-9 items-center gap-1.5 rounded-md bg-zinc-950 px-2.5 text-xs font-semibold text-white shadow-[0_2px_6px_rgb(9_9_11/0.3)] transition-colors hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-yellow-400"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden className="h-3.5 w-3.5">
+              {expanded ? (
+                <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              ) : (
+                <path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5L9 7M2.5 13.5L7 9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </svg>
+            {expanded ? "Close" : "Expand"}
+          </button>
+        </div>
+      </div>
+      <ul className="flex gap-4 border-t border-zinc-100 px-4 py-2 text-xs text-zinc-600">
         <li className="flex items-center gap-1.5"><span className="pin-key pin--urgent" />Urgent or violation</li>
         <li className="flex items-center gap-1.5"><span className="pin-key pin--open" />Open</li>
         <li className="flex items-center gap-1.5"><span className="pin-key pin--done" />Resolved</li>

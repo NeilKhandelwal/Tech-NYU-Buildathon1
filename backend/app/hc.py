@@ -271,6 +271,17 @@ class ResidentResponse(BaseModel):
     note_en: str | None = None
 
 
+def answered_this_callback(case_id) -> bool:
+    """Whether the resident already gave an answer since the caseworker's latest action."""
+    seen = False
+    for e in hcdb.list_events(case_id):  # oldest first
+        if e["type"] == "caseworker_action":
+            seen = False  # a new action is a new round: its first answer counts again
+        elif e["type"] == "resident_response":
+            seen = True
+    return seen
+
+
 @app.post("/api/tools/record_resident_response", dependencies=[Depends(tool_auth)])
 async def record_resident_response(body: ResidentResponse) -> dict:
     if body.response not in RESPONSES:
@@ -278,6 +289,13 @@ async def record_resident_response(body: ResidentResponse) -> dict:
     case = hcdb.get_case(body.case_id)
     if case is None:
         return {"ok": False, "error": "no case with that case_id"}
+    if body.response == "question" and answered_this_callback(case["id"]):
+        # live, the agent recorded "confirmed", then recorded "question" for "no, nothing
+        # else": the answer flipped on the console and a second receipt went out. Keep the
+        # answer; the follow-up words go on the timeline for the caseworker.
+        hcdb.add_event(case["id"], "note", "resident", text_original=body.note_original,
+                       text_en=body.note_en, payload={"kind": "followup", "response": "question"})
+        return {"ok": True}
     case = hcdb.update_case(case["id"], status="called_back", resident_response=body.response,
                             resident_response_note_en=body.note_en)
     hcdb.add_event(case["id"], "resident_response", "resident", text_original=body.note_original,
@@ -351,6 +369,36 @@ async def callback(case_id: str) -> dict:
     hcdb.add_event(case["id"], "callback_call", "callback_agent",
                    payload={"conversation_id": conversation_id})
     return {"ok": True, "conversation_id": conversation_id}
+
+
+@app.post("/api/cases/{case_id}/close")
+def close_case(case_id: str) -> dict:
+    """The caseworker is done: status resolved, the record and its timeline stay.
+
+    Closing is not the "resolved" action. That one calls the resident to say it's fixed;
+    this one takes the case off the open queue, and reopen puts it back where it was."""
+    case = fetch(case_id)
+    if case["status"] == "resolved":
+        return {"ok": True}  # already closed: a double click is not an error
+    hcdb.update_case(case["id"], status="resolved")
+    hcdb.add_event(case["id"], "note", "caseworker", text_en="Case closed by the caseworker",
+                   payload={"kind": "closed", "from": case["status"]})
+    return {"ok": True}
+
+
+@app.post("/api/cases/{case_id}/reopen")
+def reopen_case(case_id: str) -> dict:
+    case = fetch(case_id)
+    if case["status"] != "resolved":
+        return {"ok": True}
+    # back to the status it was closed from; a case seeded as resolved has none, so review it
+    closes = [e for e in hcdb.list_events(case["id"])
+              if e["type"] == "note" and (e["payload"] or {}).get("kind") == "closed"]
+    back = (closes[-1]["payload"].get("from") if closes else None) or "in_review"
+    hcdb.update_case(case["id"], status=back)
+    hcdb.add_event(case["id"], "note", "caseworker", text_en="Case reopened by the caseworker",
+                   payload={"kind": "reopened", "to": back})
+    return {"ok": True}
 
 
 class CaseworkerText(BaseModel):

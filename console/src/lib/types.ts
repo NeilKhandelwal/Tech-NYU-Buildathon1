@@ -169,7 +169,8 @@ export const ACTIONS: { value: CaseworkerAction; label: string; template: string
   },
   {
     value: "resolved",
-    label: "Resolved",
+    // a callback saying it's fixed; closing the case is its own button (ActionPanel)
+    label: "Tell them it's fixed",
     template: "Your landlord reports the heat is restored. Is your apartment warm now?",
   },
 ];
