@@ -192,9 +192,12 @@ async def check_violation(body: CheckViolation) -> dict:
     if indoor is None:
         return {"error": "no indoor temperature yet; ask the resident what their thermometer reads"}
     at = datetime.now(timezone.utc)
-    outdoor = await heat.outdoor_temp_f(at)  # NYC-wide hourly temperature; never raises
+    demo = os.environ.get("HC_DEMO_OUTDOOR_F")
+    # demo only: a warm afternoon would make the day rule moot on stage. The override is
+    # named in the rule text, so the screen never passes a simulated reading off as live
+    outdoor = float(demo) if demo else await heat.outdoor_temp_f(at)  # live: never raises
     violation = heat.is_violation(at, indoor, outdoor)
-    rule = rule_text(at, indoor, outdoor, violation)
+    rule = rule_text(at, indoor, outdoor, violation) + (" (demo: simulated cold day)" if demo else "")
     hcdb.update_case(case["id"], indoor_f=indoor, outdoor_f=outdoor, is_violation=violation,
                      rule_applied=rule)
     return {"is_violation": violation, "outdoor_f": outdoor, "required_f": heat.required_f(at, outdoor),

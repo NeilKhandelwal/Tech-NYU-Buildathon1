@@ -208,3 +208,24 @@ def test_localized_text_is_sent_as_is(monkeypatch):
     case = {"id": "x", "language": "hi", "case_number": "HC-1", "resident_phone": "5551234567"}
     asyncio.run(sms.send_sms(case, "confirmation", "english", body="हिंदी टेक्स्ट"))
     assert sent == ["हिंदी टेक्स्ट"] and logged[0]["text_en"] == "english"
+
+
+def test_demo_outdoor_override_is_used_and_disclosed(api, monkeypatch):
+    """On a warm demo afternoon the day rule would never fire; the override makes it fire
+    and says so on screen, so a simulated reading is never presented as live."""
+    case_id = new_case(api, indoor_f=61)["case_id"]
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 24, 18, 0, tzinfo=timezone.utc)  # 2pm in NYC
+
+    async def live(at):
+        raise AssertionError("the live lookup must not run while the override is set")
+
+    monkeypatch.setattr(hc, "datetime", Frozen)
+    monkeypatch.setattr(heat, "outdoor_temp_f", live)
+    monkeypatch.setenv("HC_DEMO_OUTDOOR_F", "41")
+    out = api.post("/api/tools/check_violation", json={"case_id": case_id}).json()
+    assert out["is_violation"] is True and out["outdoor_f"] == 41.0
+    assert out["rule_applied"].endswith("(demo: simulated cold day)")
