@@ -362,3 +362,35 @@ Translation (`translate.py`) is optional: `GEMINI_API_KEY` unset means `translat
 `GEMINI_MODEL` picks the model. Live subtitles need ElevenLabs real-time monitoring
 (Enterprise or the `realtime-monitoring` flag); without it the post-call webhook still backfills
 the transcript.
+
+## SMS (added 2026-10-24) — Twilio texts to and from the tenant
+Every text, sent or received, is one `sms` row; the dashboard's SMS panel is a list of them.
+A text that could not go out is still a row (`status` says why), so the panel shows what the
+tenant *would* have received even with Twilio unconfigured or blocked.
+```json
+Sms: {"id": "SMS-1",                   // "SMS-" + row id
+  "mission_id": "M-101" | null,         // the tenant's latest mission for that phone, if any
+  "direction": "out" | "in",
+  "phone": "5551234567",                // the tenant's number, 10 digits
+  "body": "...",                        // exactly what was sent / received (tenant's language)
+  "body_en": "..." | null,              // English; null when translation is off or it was English
+  "language": "es",                     // BCP-47 primary tag of `body`
+  "status": "sent" | "not_sent" | "failed" | "received",
+  "error": null | "TWILIO_ACCOUNT_SID not set (see backend/.env.example)",
+  "twilio_sid": "SM..." | null,
+  "created_at": "...Z"}
+```
+- `POST /missions/{id}/sms` {text_en} → 201 Sms. Translates `text_en` into the mission's
+  `tenant_language` (unchanged when `en` or translation is off) and texts `tenant_phone`.
+  Twilio unconfigured → `not_sent`; Twilio refused or unreachable → `failed`. Neither is an
+  HTTP error: the row is the record. 404 for an unknown mission, 422 on blank text.
+- `GET /missions/{id}/sms` → [Sms] oldest first. `GET /sms` → [Sms] newest first (the panel).
+- `POST /sms/webhooks/twilio` — Twilio's inbound-message webhook (form-encoded). Verified with
+  `X-Twilio-Signature` against `PUBLIC_BACKEND_URL + /sms/webhooks/twilio`; 503 if
+  `TWILIO_AUTH_TOKEN` or `PUBLIC_BACKEND_URL` is unset, 401 on a bad signature. Stores a
+  `received` row (linked to the sender's latest mission, translated to English) and answers
+  empty TwiML, so Twilio sends no auto-reply.
+- Other lanes send with `sms.send(mission_pk, phone, text_en, language) -> Sms`. It never raises.
+- Every write broadcasts `{"type": "sms", "id": "SMS-1"}`, plus `{"type": "mission", ...}` when linked.
+- Env: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` (E.164, `+1…`),
+  `PUBLIC_BACKEND_URL` (the tunnel/host Twilio reaches). A trial account only texts verified numbers.
