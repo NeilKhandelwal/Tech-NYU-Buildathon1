@@ -179,7 +179,7 @@ def test_texts_reach_hindi_and_spanish_speakers_without_an_llm():
     """With no LLM key the SMS would go out in English; the demo languages are pre-written."""
     hindi = {"language": "hi", "case_number": "HC-123456", "caseworker_action": "schedule_inspection",
              "resident_response": "confirmed"}
-    assert "HC-123456" in hc.localized(hindi, "confirmation") and "हिंदी" in hc.localized(hindi, "confirmation")
+    assert "HC-123456" in hc.localized(hindi, "confirmation") and "हिंदी" in hc.localized(hindi, "confirmation") and hc.localized(hindi, "confirmation").startswith("CityLine")
     receipt = hc.localized(hindi, "receipt")
     assert "निरीक्षण" in receipt and "पुष्टि की" in receipt
     spanish = {**hindi, "language": "es"}

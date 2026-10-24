@@ -24,7 +24,7 @@ from app import elevenlabs, hcdb, heat
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 logger = logging.getLogger("heatcheck")
 
-app = FastAPI(title="Heat Check API")
+app = FastAPI(title="CityLine API")  # renamed from Heat Check at 13:15
 # the dashboard is on Vercel and calls action/callback from the browser; nothing here is
 # secret to read (the data is the demo's), so any origin may call
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -76,8 +76,8 @@ def fetch(case_id) -> dict:
 # resident's language with no LLM. Any other language falls back to sms.py's translation.
 SMS = {
     "es": {
-        "confirmation": "Heat Check: su queja por falta de calefacción {case_number} fue enviada al encargado de casos de la ciudad. Le llamaremos en español.",
-        "receipt": "Heat Check {case_number}: {action}. Su respuesta: {response}. Puede responder en cualquier momento.",
+        "confirmation": "CityLine: su queja {case_number} fue enviada al encargado de casos de la ciudad. Le llamaremos en español.",
+        "receipt": "CityLine {case_number}: {action}. Su respuesta: {response}. Puede responder en cualquier momento.",
         "actions": {"schedule_inspection": "se programará una inspección",
                     "need_more_info": "el encargado de casos necesita más información",
                     "emergency_repair": "el caso fue remitido para reparación de emergencia",
@@ -87,8 +87,8 @@ SMS = {
                       "question": "hizo una pregunta"},
     },
     "hi": {
-        "confirmation": "हीट चेक: बिना हीट की आपकी शिकायत {case_number} शहर के केसवर्कर को भेज दी गई है। हम आपको हिंदी में वापस कॉल करेंगे।",
-        "receipt": "हीट चेक {case_number}: {action}। आपका जवाब: {response}। आप कभी भी जवाब दे सकते हैं।",
+        "confirmation": "CityLine: आपकी शिकायत {case_number} शहर के केसवर्कर को भेज दी गई है। हम आपको हिंदी में वापस कॉल करेंगे।",
+        "receipt": "CityLine {case_number}: {action}। आपका जवाब: {response}। आप कभी भी जवाब दे सकते हैं।",
         "actions": {"schedule_inspection": "निरीक्षण तय किया जाएगा",
                     "need_more_info": "केसवर्कर को और जानकारी चाहिए",
                     "emergency_repair": "मामला आपातकालीन मरम्मत के लिए भेजा गया",
@@ -236,7 +236,7 @@ async def submit_case(body: SubmitCase, tasks: BackgroundTasks) -> dict:
         # while the resident is still on the line (webhooks.enrich never raises)
         tasks.add_task(webhooks.enrich, case["id"])
         await send_sms(case, "confirmation",
-                       f"Heat Check: your no-heat complaint {case['case_number']} was sent to the "
+                       f"CityLine: your complaint {case['case_number']} was sent to the "
                        f"city caseworker. We'll call you back in {case['language_label']}.")
     return {"ok": True, "case_number": case["case_number"]}
 
@@ -262,7 +262,7 @@ async def record_resident_response(body: ResidentResponse) -> dict:
     hcdb.add_event(case["id"], "resident_response", "resident", text_original=body.note_original,
                    text_en=body.note_en, payload={"response": body.response})
     action = ACTIONS.get(case["caseworker_action"] or "", "your case was reviewed")
-    await send_sms(case, "receipt", f"Heat Check {case['case_number']}: {action}. "
+    await send_sms(case, "receipt", f"CityLine {case['case_number']}: {action}. "
                                      f"Your answer: {RESPONSES[body.response]}. Reply anytime.")
     return {"ok": True}
 
