@@ -48,8 +48,16 @@ export function fineRange(c: Case) {
   return c.building?.repeat_offender ? "$500–$1,000 / day (repeat building)" : "$250–$500 / day";
 }
 
+// geocoding stores the borough upper-case ("BRONX"); show it the way people write it
+export function borough(c: Case) {
+  return c.borough ? c.borough.toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()) : null;
+}
+
 export function addressLine(c: Case) {
-  return [c.address, c.unit && `Apt ${c.unit}`, c.borough].filter(Boolean).join(", ");
+  const b = borough(c);
+  // the agent usually says the borough as part of the address; don't print it twice
+  const withBorough = b && !c.address.toLowerCase().includes(b.toLowerCase());
+  return [c.address, c.unit && `Apt ${c.unit}`, withBorough && b].filter(Boolean).join(", ");
 }
 
 export function isOpen(c: Case) {

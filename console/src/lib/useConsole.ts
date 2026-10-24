@@ -23,6 +23,7 @@ export function useConsole() {
   const [live, setLive] = useState<Live>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<Record<string, Set<string>>>({});
+  // ids (cases and events) that just arrived over realtime, for the slide-in highlight
   const [fresh, setFresh] = useState<Set<string>>(new Set());
 
   // the realtime callbacks are bound once; refs let them see the current values
@@ -101,6 +102,7 @@ export function useConsole() {
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, (msg) => {
         const row = msg.new as CaseEvent;
         if (msg.eventType !== "INSERT" || row.case_id !== selectedRef.current) return;
+        markFresh(row.id); // only live arrivals animate, not the history loaded on open
         setEvents((es) => (es.some((e) => e.id === row.id) ? es : [...es, row]));
       })
       .subscribe((status) => {

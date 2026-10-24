@@ -58,11 +58,11 @@ export default function ConsolePage() {
                     <SummaryCard c={c} flash={f} />
                     <BuildingCard c={c} flash={f} />
                     <TranscriptCard key={c.id} c={c} flash={f} />
-                    <Timeline events={events} />
+                    <Timeline events={events} fresh={fresh} />
                   </div>
                   <div className="space-y-4">
                     <ViolationCard c={c} flash={f} />
-                    <SmsPanel events={events} phone={c.resident_phone} />
+                    <SmsPanel events={events} phone={c.resident_phone} fresh={fresh} />
                   </div>
                 </div>
               </div>

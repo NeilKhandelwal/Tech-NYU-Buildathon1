@@ -4,7 +4,7 @@ import { Card } from "./ui";
 
 // The resident's phone, as the resident sees it: Heat Check on the left, their replies on the
 // right. Every sms_out is logged even when Twilio refuses it, so this is also the fallback.
-export function SmsPanel({ events, phone }: { events: CaseEvent[]; phone: string }) {
+export function SmsPanel({ events, phone, fresh }: { events: CaseEvent[]; phone: string; fresh: Set<string> }) {
   const texts = events.filter((e) => e.type === "sms_out" || e.type === "sms_in");
   return (
     <Card title="SMS" aside={<span className="font-mono text-xs text-slate-400">…{phone.slice(-4)}</span>}>
@@ -17,7 +17,7 @@ export function SmsPanel({ events, phone }: { events: CaseEvent[]; phone: string
             const status = e.payload?.status as string | undefined;
             const english = e.text_en && e.text_en !== e.text_original ? e.text_en : null;
             return (
-              <div key={e.id} className={`flex flex-col animate-arrive ${mine ? "items-end" : "items-start"}`}>
+              <div key={e.id} className={`flex flex-col ${fresh.has(e.id) ? "animate-arrive" : ""} ${mine ? "items-end" : "items-start"}`}>
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-snug ${
                     mine ? "rounded-br-sm bg-blue-900 text-white" : "rounded-bl-sm bg-white text-slate-900 ring-1 ring-slate-200"

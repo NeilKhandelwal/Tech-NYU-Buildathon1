@@ -2,6 +2,8 @@ import type { CaseEvent } from "./types";
 
 export type CallState = "idle" | "calling" | "answered" | "done" | "no_answer";
 
+const STALE_MS = 15 * 60_000;
+
 // The button's state comes from the data, not from local clicks, so a reload (or a second
 // screen) shows the same thing. Only events after the latest saved action count: each
 // action + callback is a new attempt.
@@ -16,6 +18,11 @@ export function callState(events: CaseEvent[]): CallState {
   const answered = after.some((e) => e.type === "resident_response");
   const ended = after.some((e) => e.type === "callback_call" && e.text_original);
   if (ended) return answered ? "done" : "no_answer";
-  if (answered) return "answered";
+  if (answered) {
+    // a call is over within minutes; an answer this old whose post-call webhook never came
+    // (seed data, a lost webhook) must not lock the button forever
+    const at = Date.parse(after.findLast((e) => e.type === "resident_response")!.created_at);
+    return Date.now() - at > STALE_MS ? "done" : "answered";
+  }
   return dialed ? "calling" : "idle";
 }

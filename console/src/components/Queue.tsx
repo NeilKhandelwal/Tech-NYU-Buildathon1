@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Case } from "@/lib/types";
-import { ago, isOpen, queueOrder } from "@/lib/format";
+import { ago, borough, isOpen, queueOrder } from "@/lib/format";
 import { LanguageBadge, PriorityBadge, StatusText, ViolationBadge } from "./ui";
 
 const FILTERS = {
@@ -61,7 +61,7 @@ export function Queue({ cases, selectedId, onSelect, fresh, now }: {
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-600">
                 <LanguageBadge label={c.language_label ?? c.language} />
-                <span>{c.borough ?? "—"}</span>
+                <span>{borough(c) ?? "—"}</span>
                 <span className="text-slate-300">·</span>
                 <StatusText value={c.status} />
               </div>

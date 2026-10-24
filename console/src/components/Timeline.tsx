@@ -23,7 +23,7 @@ function detail(e: CaseEvent): string | null {
   return null;
 }
 
-export function Timeline({ events }: { events: CaseEvent[] }) {
+export function Timeline({ events, fresh }: { events: CaseEvent[]; fresh: Set<string> }) {
   const newest = [...events].reverse();
   return (
     <Card title="Timeline" aside={<span className="text-xs text-slate-400">{events.length} events</span>}>
@@ -35,7 +35,7 @@ export function Timeline({ events }: { events: CaseEvent[] }) {
           // the callback transcript is long and already in the call's own record; keep the row short
           const showText = e.type !== "callback_call";
           return (
-            <li key={e.id} className="flex gap-3 animate-arrive">
+            <li key={e.id} className={`flex gap-3 ${fresh.has(e.id) ? "animate-arrive" : ""}`}>
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${k.tone}`}>{k.icon}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2 text-sm">
