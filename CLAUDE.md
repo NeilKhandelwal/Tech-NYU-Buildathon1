@@ -1,65 +1,189 @@
-# CLAUDE.md — project operating context
+# Heat Check — project context (FINAL)
 
-## What this is
-A voice intake line for local-government service requests, with a live case desk.
-An ElevenLabs Agents voice agent answers, files a service request mid-conversation, and hands
-the caller a case ID and a three-word lookup code; staff watch the call and triage the
-case in a Next.js dashboard, live. Read [README.md](README.md) first — it has the data
-model and the API table.
+Hackathon build. Tech@NYU Shipyard Buildathon, Sat Oct 24 2026.
+- **Deadline: submit on MLH by 3:45 PM ET.** Team targets: feature freeze 3:00, submit 3:30.
+- Main track: Best Use of ElevenLabs. Judges want voice central to the experience, not a bolt-on.
+- Also enter:
+  - SpaceX/Grok, only if Grok does the translation/summaries.
+  - Snowflake, only if the heat map ships.
+- Skip DigitalOcean.
 
-## Layout
-- `backend/` — FastAPI + SQLAlchemy Core (no ORM). `app/main.py` is every endpoint,
-  `app/db.py` the tables, the engine and the public-id helpers, `migrations/` the Alembic
-  schema, `app/models.py` the Pydantic types, `app/codes.py` + `app/words.py` the lookup
-  codes. `scripts/seed.py`, `scripts/reset_demo.py`.
-- `agent/` — `provision.py` creates/updates the ElevenLabs agent: the prompt, the five server
-  tool schemas (webhooks into `backend` `/voice/tools/*`), built-in `end_call`. The agent itself
-  runs in ElevenLabs; the tool logic and all per-call state live in `backend/app/main.py`.
-- `dashboard/` — Next.js App Router. `src/lib/api.ts` is the whole client (types, fetch
-  helpers, `useLiveRefresh`); pages under `src/app/`.
-- `docs/` — [CONTRACT.md](docs/CONTRACT.md), [DECISIONS.md](docs/DECISIONS.md), [ROADMAP.md](docs/ROADMAP.md).
+Detailed specs live next to this file:
+- `CONTRACT.md`: DB schema and every API endpoint. This is the source of truth between frontend, backend and agents.
+- `AGENTS.md`: the two ElevenLabs agents, their prompts and their tools.
+- `DASHBOARD.md`: the government caseworker dashboard spec.
+- `PITCH.md`: the problem stats, demo script and judge Q&A.
 
-## Run and test
-- Backend: `cd backend && uv sync && uv run uvicorn app.main:app --reload --port 8000`;
-  tests `uv run pytest`. `DATABASE_URL` picks the database — unset means the SQLite file
-  `backend/cases.db`, `postgresql+psycopg://…` is what compose and CI run. Migrations apply
-  themselves at startup; `uv run alembic upgrade head` does it by hand.
-- Agent: `cd agent && uv sync && uv run python provision.py` (needs `agent/.env`, and the
-  backend reachable at `PUBLIC_BACKEND_URL`, e.g. a cloudflared tunnel); tests `uv run pytest`.
-  A prompt or tool change only reaches calls after `provision.py` runs.
-- Dashboard: `cd dashboard && npm install && npm run dev`; checks `npm run build` and
-  `npm run lint`.
+## What we're building (one sentence)
+A two-sided voice line for NYC no-heat complaints. Residents call in their own language, the case lands on a hosted government dashboard, and the caseworker's reply goes back to the resident as a phone call in their language. A human approves every step on both sides.
 
-## Conventions
-- **Stdlib first.** No new dependency without a reason stated in the PR description.
-- **Short, obvious functions** over clever ones. Every non-obvious line gets a one-line
-  comment saying *why*, not what.
-- **Contract first.** A feature starts by adding to `docs/CONTRACT.md`, agreed before the
-  backend, agent, and dashboard are built against it. That contract is what lets the three
-  sides be written in parallel.
-- **Hardcode twice, abstract on the third.** Two copies of a value or a shape are fine and
-  deliberate; the third copy is the signal to centralise. Say so in a comment when you do
-  it on purpose (the `issue_type` enum is the standing example, at three copies).
-- **Match what is there.** Conformance beats taste inside this codebase. If a convention
-  seems wrong, say so once, in the PR — do not fork it silently.
-- **Errors the agent can speak.** Every `/voice/tools/*` endpoint answers 200 `{result}` with a
-  sentence the caller can hear, failures included. A 4xx/5xx leaves the agent stalling.
-- **Writes broadcast.** Any new write endpoint ends with `await broadcast(type, id)`;
-  the socket carries no payload and clients refetch.
-- **No AI attribution in git.** No co-author trailers, no generated-with footers.
+**Pitch line:** "311 that speaks your language, and a caseworker console that talks back."
 
-## Working in this repo
-- **The main checkout is the demo tree.** Services run from it; never run git operations
-  or merges there. Feature work happens in a git worktree:
-  `git worktree add ../wt-<name> -b <branch> origin/main`.
-- Branch and PR for everything; no direct commits to `main`.
-- Path-scoped commits: one commit, one concern, a message that says why.
-- A tool-rule change ships with the `backend/tests/test_voice.py` test that would have caught
-  the old behaviour. (The LiveKit-era LLM evals were removed with the worker; there is no
-  prompt-level eval yet.)
+## The pipeline
+1. **Resident calls the Heat Check number.** Often an elderly or ESL resident, in their native language.
+2. **Intake agent (ElevenLabs).**
+   - Auto-detects the language and replies in it.
+   - Collects name, address, unit, days without heat, indoor temperature, and callback number (default: caller ID).
+   - Calls `check_violation`, which compares the outdoor temperature at that hour with the HPD rule.
+3. **Resident human-in-the-loop.** The agent reads the details back and asks, "Should I send this to the city?" Only a yes calls `submit_case`.
+4. **Confirmation text** goes to the resident in their language, with the case number.
+5. **Post-call webhook.** It saves the original transcript and makes an English translation, summary and priority with an LLM (Grok, if possible). It also runs `building_lookup` from NYC Open Data. The case then appears live on the dashboard.
+6. **Government dashboard (hosted Next.js).** The caseworker sees:
+   - the queue
+   - the case detail: original and English transcript, violation check, building history, AI-suggested action
+7. **Caseworker human-in-the-loop.**
+   - Picks an action: schedule inspection, need more info, emergency repair referral, or resolved.
+   - Edits the message in English.
+   - Nothing goes out until they click **"Call back in resident's language."**
+8. **Callback agent (ElevenLabs outbound via Twilio).**
+   - Calls the resident and delivers the caseworker's message in the resident's language.
+   - Captures the reply (confirmed, needs another time, or a question) with `record_resident_response`.
+9. **The resident's reply shows on the dashboard live.** A receipt text goes to the resident in their language.
 
-## Where decisions go
-`docs/DECISIONS.md`, one line per decision worth defending, written when the decision is
-made: `YYYY-MM-DD | decision | why | what we gave up`. Take-home-era entries use elapsed
-`HH:MM` and stay as they are. If a decision is worth arguing about in review, it belongs
-in that file before the PR is opened.
+**Cut (say "next" in the pitch):**
+- the agent calling the landlord directly
+- whole-building / neighbor filing
+- scheduled twice-daily evidence texts
+- real 311/HPD integration
+- other complaint types: hot water, mold, lockouts
+- voice clone
+- PDF export
+
+## The law (verified on the NYC HPD site)
+- Heat season runs Oct 1 to May 31.
+- Day (6am–10pm): if it's below 55°F outside, it must be at least 68°F inside.
+- Night (10pm–6am): it must be at least 62°F inside, whatever the outdoor temperature.
+- Hot water must be at least 120°F year-round.
+- Penalties: $250–$500/day for a first violation; $500–$1,000/day for a repeat at the same building.
+- Emergency Repair Program: if the owner doesn't fix it after a violation and it's below 64°F (day) or 58°F (night), HPD can hire contractors and bill the owner.
+
+```
+def is_violation(date, hour, indoor_f, outdoor_f):
+    if not in_heat_season(date): return False      # Oct 1 – May 31
+    if 6 <= hour < 22: return outdoor_f < 55 and indoor_f < 68
+    return indoor_f < 62
+```
+
+## Architecture
+- **Voice:** ElevenLabs Agents. There are two agents: `intake` (inbound) and `callback` (outbound).
+  - Phone goes through ElevenLabs' native Twilio integration.
+  - Tools are ElevenLabs server tools, i.e. webhooks into our API.
+  - Outbound calls take dynamic variables.
+  - A post-call webhook sends us transcripts.
+  - Check current ElevenLabs docs for exact field names; don't guess.
+- **SMS:** Twilio. A trial account only texts verified numbers, so verify all 4 teammates' phones.
+- **App:** Next.js (App Router) on Vercel. API routes live under `app/api`.
+- **DB:** Supabase Postgres + Realtime (the dashboard subscribes to `cases` and `events`).
+- **LLM for translation/summary/priority:** Grok if keys are available (makes us eligible for the SpaceX track), else any LLM.
+- **Data:**
+  - NYC Open Data (Socrata): HPD violations and 311 heat/hot water service requests by address.
+  - Cache the demo building's data in Supabase.
+- **Weather:** Open-Meteo (no key) for the outdoor temperature at a lat/lon and hour.
+
+## Rules (agents and code)
+- Agents always say they are an AI assistant for Heat Check.
+- No legal advice: "your rights may include…", and point to 311/HPD.
+- Never submit a case without the resident's spoken yes. Never call a resident back without the caseworker's click.
+- Everything the resident hears or reads is in their language. Everything the caseworker reads is in English, with the original shown alongside.
+- Never ask for SSN, bank details or immigration status.
+- The dashboard is a **demo government console** labeled "Heat Check Caseworker Console (demo)". It must not use NYC or HPD logos or branding.
+- Never submit anything to the real 311/HPD. Case numbers are ours: `HC-` + 6 digits.
+
+## Team ownership and code layout
+| Person | Owns | Folder |
+|---|---|---|
+| Romir | Both ElevenLabs agents (prompts, language detection, tools, dynamic variables), with Neil | `/agent` |
+| Neil | Twilio, Supabase schema, all `app/api` routes, LLM translation, Open Data + weather | `app/api`, `/lib`, `/supabase` |
+| Andrew | Caseworker dashboard UI, realtime, Vercel deploy | `app/(dashboard)`, `/components` |
+| Valaya | Pitch, stats, seed data (4–5 realistic cases + demo building), caseworker role in the demo, backup video, MLH submission | `/seed`, `/pitch` |
+
+## Checkpoints
+| Time | Done means |
+|---|---|
+| 12:30 | Repo, Supabase, Vercel, Twilio number, ElevenLabs keys ready; 4 phones verified |
+| 1:00 | Intake agent answers in Hindi and English and runs intake; `create_case` writes a row |
+| 1:30 | Case appears on the dashboard live with English translation, violation flag and building history |
+| 2:15 | Caseworker click → callback call in Hindi delivers the message; resident reply saved |
+| 2:30 | Confirmation and receipt texts work (or the SMS panel fallback is on) |
+| 2:45 | Full demo run-through; fix blockers only |
+| 3:00 | Feature freeze; record backup video |
+| 3:30 | Submitted on MLH |
+
+## Fallbacks
+| If this breaks | Fall back to |
+|---|---|
+| Inbound number not working by 1:00 | Web mic button using the ElevenLabs React SDK on a "resident" page |
+| Outbound callback fails | Callback via web session the dashboard opens in a second tab |
+| Twilio SMS blocked | SMS log panel on the dashboard showing what would be sent |
+| LLM translation slow or fails | Show the agent's own English summary from the post-call analysis |
+| Open Data or weather API slow | Cached values in Supabase for the demo building |
+| Live demo fails | Backup video |
+
+## Working style for Claude Code
+- Speed over polish. Make the smallest change that works and keep the demo path green.
+- Build only what's in this file. Ask before adding anything else.
+- Secrets go in `.env.local` only, never committed. Use:
+  - `ELEVENLABS_API_KEY`, `ELEVENLABS_INTAKE_AGENT_ID`, `ELEVENLABS_CALLBACK_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID`
+  - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
+  - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+  - `XAI_API_KEY` (or another LLM key)
+- Small commits, pushed often. Four people share this repo. Stay in your folder.
+- If you change anything in `CONTRACT.md`, say so in the team chat.
+
+## Links
+- Team doc (Google Doc "Voice Agent", tab "Final - Two-Sided Heat Line"): https://docs.google.com/document/d/16DWj0tdnHWwBuJBAAtpWlFXjRKmkVLnHHNBtzWZTrNY/edit
+- HPD heat rules: https://www.nyc.gov/site/hpd/services-and-information/heat-and-hot-water-information.page
+
+---
+
+## Repo as it is today (updated when `heatcheck` merged into `main`)
+Everything above says **what** we're building and wins on that. This section says **how the code is actually set up**. Where the two disagree, the code below is what exists. The product is now **CityLine** (renamed from Heat Check) and takes any 311 complaint, with heat as the in-depth path.
+
+### Spec vs code (what changed from the plan above)
+- **Stack:** no Next.js `app/api`. The CityLine API is FastAPI (`backend/app/hc.py`), deployed on Fly as `heatcheck-nyu` (the app keeps that name: every webhook URL uses it). It reads and writes Supabase Postgres through `HC_DATABASE_URL`.
+- **Dashboard:** the caseworker console is `console/` (Next.js, Vercel Root Directory = `console`). `dashboard/` is the older 311 desk and isn't the demo console.
+- **Tables:** Supabase `cases` + `events` as in `CONTRACT.md` (`supabase/schema.sql`), plus `cases.complaint_type` / `description`. The old SQLAlchemy schema in `backend/app/db.py` + `migrations/` belongs to the older app and must never run against Supabase.
+- **Reads:** the console reads through the API (`GET /api/cases`, `/api/cases/{id}`, `/api/calls`), polling every 2 s. The publishable key reads nothing while row level security is on in Supabase; Realtime only nudges an immediate refetch once RLS is off.
+- **Messages:** Twilio, over the WhatsApp sandbox (`TWILIO_CHANNEL=whatsapp`), because US SMS needs A2P 10DLC registration. Every message is logged as an `sms_out` / `sms_in` event either way.
+
+### Layout
+- `backend/app/`:
+  - `hc.py`: the CityLine API, including the agent tools, the dashboard routes, `/api/calls`, and the live call poller in its lifespan.
+  - `hcdb.py`: Supabase data access.
+  - `webhooks.py`: the ElevenLabs post-call and Twilio inbound webhooks.
+  - `sms.py`, `llm.py` (Grok, then Claude, then Gemini; never raises), `building.py` (NYC Open Data), `heat.py` (the HPD rule).
+  - `live.py`: the live call log, written as `call_started` / `transcript` / `call_ended` events.
+  - `voicenote.py`.
+- `backend/` also keeps the older apps: `main.py`, `db.py`, and the tenant-advocate modules `missions.py` / `outbound.py` / `monitor.py` (`live.py` reuses `monitor.py`'s socket parser).
+- `agent/provision.py`: the two ElevenLabs agents (intake, callback), with their prompts, greetings and server-tool schemas. A prompt or tool change only reaches calls after it runs.
+- `console/`: the caseworker console. `src/lib/useConsole.ts` holds the data and polling; `src/lib/api.ts` the client.
+- `supabase/schema.sql`: run in the Supabase SQL editor; the API never creates or alters tables there.
+- `docs/`: the older `CONTRACT.md` (service-request desk and tenant advocate), `DECISIONS.md` and `ROADMAP.md`. The root `CONTRACT.md` is the CityLine contract.
+
+### Run and test
+- API: `cd backend && uv sync && HC_DATABASE_URL=... uv run uvicorn app.hc:app --port 8000`; tests `uv run pytest` (SQLite stands in for Supabase).
+- Agents: `cd agent && uv sync && uv run python provision.py` (needs `ELEVENLABS_API_KEY` and `PUBLIC_BACKEND_URL`); tests `uv run pytest`.
+- Console: `cd console && cp .env.example .env.local && npm install && npm run dev`; checks `npm run build` and `npm run lint`.
+- Demo reset: `fly ssh console -a heatcheck-nyu -C "python -m scripts.hc_reset --yes"` clears everything but the seeds (`scripts/hc_seed.py`).
+
+### Env vars in use
+- API (Fly secrets):
+  - database and access: `HC_DATABASE_URL`, `HC_TOOL_SECRET`
+  - ElevenLabs: `ELEVENLABS_API_KEY`, `ELEVENLABS_INTAKE_AGENT_ID` (or `ELEVENLABS_AGENT_ID`), `ELEVENLABS_CALLBACK_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID`, `ELEVENLABS_WEBHOOK_SECRET`
+  - LLMs: `XAI_API_KEY` / `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` (plus the matching `*_MODEL`)
+  - Twilio: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`, `TWILIO_CHANNEL`, `TWILIO_WHATSAPP_NUMBER`, `WHATSAPP_ALIASES`
+  - demo switches: `HC_DEMO_OUTDOOR_F` (demo only, disclosed in the rule text), `HC_LIVE_CALLS=0` (turns the live call log off)
+- Agents: `ELEVENLABS_API_KEY`, `PUBLIC_BACKEND_URL`, `HC_TOOL_SECRET`, and the two agent ids.
+- Console: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+- Every `.env*` except `.env.example` is gitignored.
+
+### Conventions already implemented
+- **Errors the agent can speak.** Every `/api/tools/*` route answers 200 with a reason the agent can act on, never a 4xx the agent would stall on.
+- **Human in the loop on both sides.** `submit_case` needs the resident's yes; `/callback` needs a saved caseworker message.
+- **Stdlib first; short, obvious functions;** comment the *why* of non-obvious lines; match what is there.
+- **Decisions** go in `docs/DECISIONS.md`, one line each: `YYYY-MM-DD | decision | why | what we gave up`.
+
+### Git
+- The main checkout is the demo tree; never run git operations there. Work in a worktree: `git worktree add ../wt-<name> -b <branch> origin/heatcheck`.
+- Branch and PR for everything; feature PRs target `heatcheck`, and `heatcheck` reaches `main` by PR. Path-scoped commits: one concern each, with a message that says why.
+- No AI attribution in git: no co-author trailers, no generated-with footers.
