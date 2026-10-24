@@ -193,3 +193,29 @@ def test_callback_without_an_llm_uses_the_agents_english(api, monkeypatch):
     api.post("/api/webhooks/elevenlabs_post_call", json=body)
     [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
     assert ended["text_en"] == "Resident: Yes."
+
+
+def test_whatsapp_alias_routes_both_ways(api, monkeypatch):
+    """Demo: Romir calls from a US number but his WhatsApp is Indian. The receipt must reach
+    the WhatsApp number, and his WhatsApp reply must land on the case filed under the caller ID."""
+    import asyncio
+    from app import sms
+    monkeypatch.setenv("WHATSAPP_ALIASES", "5551234567=919108651858")
+    monkeypatch.setenv("TWILIO_CHANNEL", "whatsapp")
+    for k, v in (("TWILIO_ACCOUNT_SID", "AC1"), ("TWILIO_AUTH_TOKEN", "t"),
+                 ("TWILIO_PHONE_NUMBER", "+14155238886")):
+        monkeypatch.setenv(k, v)
+    seen = []
+
+    async def fake_post(self, url, **kw):
+        import httpx
+        seen.append(kw["data"]["To"])
+        return httpx.Response(201, json={"sid": "SM1"})
+
+    monkeypatch.setattr(sms.httpx.AsyncClient, "post", fake_post)
+    status, _, _ = asyncio.run(sms.twilio_send("5551234567", "hi"))
+    assert (status, seen) == ("sent", ["whatsapp:+919108651858"])
+    case = case_with_conversation()
+    api.post("/api/webhooks/twilio_sms", content="From=whatsapp%3A%2B919108651858&Body=ok",
+             headers={"Content-Type": "application/x-www-form-urlencoded"})
+    assert hcdb.list_events(case["id"])[-1]["type"] == "sms_in"

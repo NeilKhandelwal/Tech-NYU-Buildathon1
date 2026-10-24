@@ -113,6 +113,8 @@ def test_sms_sends_translated_body_through_twilio(db, monkeypatch):
     for k, v in (("TWILIO_ACCOUNT_SID", "AC1"), ("TWILIO_AUTH_TOKEN", "t"),
                  ("TWILIO_PHONE_NUMBER", "+15550000000")):
         monkeypatch.setenv(k, v)
+    # hc.py's load_dotenv can bring a developer's TWILIO_CHANNEL=whatsapp into the suite
+    monkeypatch.delenv("TWILIO_CHANNEL", raising=False)
     # llm and sms share the one httpx module, so a single transport answers both by host
     seen = mock_http(monkeypatch, sms, lambda r: httpx.Response(
         200, json={"choices": [{"message": {"content": "आपका केस भेजा गया"}}]})
@@ -138,6 +140,20 @@ def test_whatsapp_channel_prefixes_both_ends_and_uses_the_sandbox(db, monkeypatc
     [twilio] = seen
     form = dict(x.split("=", 1) for x in twilio.content.decode().split("&"))
     assert (form["To"], form["From"]) == ("whatsapp%3A%2B15551234567", "whatsapp%3A%2B14155238886")
+
+
+def test_a_non_us_number_keeps_its_country_code(db, monkeypatch):
+    """A +91 WhatsApp number must not be turned into +1 and its last ten digits."""
+    no_llm(monkeypatch)
+    for k, v in (("TWILIO_ACCOUNT_SID", "AC1"), ("TWILIO_AUTH_TOKEN", "t"),
+                 ("TWILIO_PHONE_NUMBER", "+15550000000"), ("TWILIO_CHANNEL", "whatsapp")):
+        monkeypatch.setenv(k, v)
+    seen = mock_http(monkeypatch, sms, lambda r: httpx.Response(201, json={"sid": "SM1"}))
+    case = make_case(db, language="en", resident_phone=db.digits("+91 91086 51858"))
+    asyncio.run(sms.send_sms(case, "receipt", "Receipt"))
+    [twilio] = seen
+    form = dict(x.split("=", 1) for x in twilio.content.decode().split("&"))
+    assert form["To"] == "whatsapp%3A%2B919108651858"
 
 
 def test_twilio_rejection_is_logged_not_raised(db, monkeypatch):
