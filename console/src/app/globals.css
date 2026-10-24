@@ -22,8 +22,8 @@ body {
 
 /* City map pins. maplibre owns each marker's transform (that's its position), so every
    animation lives on the pseudo-elements, never on .pin itself. */
+/* no position here: maplibre's .maplibregl-marker is position:absolute, which also anchors the rings */
 .pin {
-  position: relative;
   width: 14px;
   height: 14px;
   border-radius: 9999px;

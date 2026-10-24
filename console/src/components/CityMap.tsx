@@ -20,30 +20,6 @@ const EXPAND_INSET = 16; // px kept around the expanded map inside the case area
 
 const FIT_PADDING = { top: 28, bottom: 28, left: 28, right: 64 };
 const MAX_FIT_ZOOM = 13; // one or two pins shouldn't zoom to a single block
-const PIN_GAP = 18; // px: pins closer than this on screen are fanned apart
-
-// Nudge pins that would sit on top of each other, so every case stays clickable at city zoom.
-// Greedy: the selected pin keeps its true spot, each later pin steps round a ring until clear.
-// The nudge is screen-only and shrinks to nothing once you zoom in far enough to separate them.
-function declutter(m: MlMap, pins: Map<string, Marker>, first: string | null) {
-  const order = [...pins.keys()].sort((a, b) => Number(b === first) - Number(a === first));
-  const taken: { x: number; y: number }[] = [];
-  for (const id of order) {
-    const pin = pins.get(id)!;
-    const at = m.project(pin.getLngLat());
-    let dx = 0;
-    let dy = 0;
-    for (let step = 0; step < 18; step++) {
-      if (taken.every((p) => Math.hypot(p.x - at.x - dx, p.y - at.y - dy) >= PIN_GAP)) break;
-      const angle = (step * Math.PI) / 3; // six spots per ring
-      const r = PIN_GAP * (1 + Math.floor(step / 6));
-      dx = Math.round(Math.cos(angle) * r);
-      dy = Math.round(Math.sin(angle) * r);
-    }
-    taken.push({ x: at.x + dx, y: at.y + dy });
-    pin.setOffset([dx, dy]);
-  }
-}
 
 // The basemap's own city, town and water names clip at the card's edges and sit under the pins; the
 // address in the case header already says where we are.
@@ -75,13 +51,11 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
   const markers = useRef(new Map<string, Marker>());
   const lib = useRef<typeof import("maplibre-gl") | null>(null);
   const select = useRef(onSelect);
-  const selected = useRef(selectedId);
   const pointsRef = useRef(points);
   // the fit below waits for the style: fitting before load lands on the wrong size
   const [ready, setReady] = useState(false);
   useEffect(() => {
     select.current = onSelect;
-    selected.current = selectedId;
     pointsRef.current = points;
   });
 
@@ -113,8 +87,6 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
         box.current?.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
         setReady(true);
       });
-      // screen distances change with zoom, so the fan-out is redone as the map moves
-      m.on("zoom", () => declutter(m, markers.current, selected.current));
     });
     return () => {
       gone = true;
@@ -145,13 +117,14 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
       }
       pin.setLngLat(at);
       const el = pin.getElement();
-      el.className = [
-        "pin",
-        `pin--${tone(c)}`,
-        c.id === selectedId && "pin--selected",
-        fresh.has(c.id) && "pin--fresh",
-        onLine.has(c.id) && "pin--live",
-      ].filter(Boolean).join(" ");
+      // toggle only our classes: maplibre's own (maplibregl-marker) carry position:absolute and
+      // its transform origin, and overwriting them is what made pins drift on zoom
+      const t = tone(c);
+      el.classList.add("pin");
+      for (const k of ["open", "urgent", "done"]) el.classList.toggle(`pin--${k}`, k === t);
+      el.classList.toggle("pin--selected", c.id === selectedId);
+      el.classList.toggle("pin--fresh", fresh.has(c.id));
+      el.classList.toggle("pin--live", onLine.has(c.id));
       el.setAttribute("aria-label", `${c.case_number}, ${COMPLAINT_LABEL[complaintOf(c)]}, ${c.address}`);
       el.title = `${c.case_number} · ${c.address}`;
       // the selected pin sits above its neighbours instead of under them
@@ -163,7 +136,6 @@ export function CityMap({ cases, points, selectedId, fresh, onLine, locating, on
         markers.current.delete(id);
       }
     }
-    declutter(m, markers.current, selectedId);
   });
 
   // Frame every placed case, not just the selected one: the whole city stays in view, the selected
