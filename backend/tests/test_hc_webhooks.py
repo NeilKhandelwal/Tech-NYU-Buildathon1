@@ -218,7 +218,8 @@ def test_whatsapp_alias_routes_both_ways(api, monkeypatch):
     case = case_with_conversation()
     api.post("/api/webhooks/twilio_sms", content="From=whatsapp%3A%2B919108651858&Body=ok",
              headers={"Content-Type": "application/x-www-form-urlencoded"})
-    assert hcdb.list_events(case["id"])[-1]["type"] == "sms_in"
+    # the reply lands on the case; ack.py's "got it" sms_out follows it
+    assert "sms_in" in [e["type"] for e in hcdb.list_events(case["id"])]
 
 
 def test_caseworker_text_sends_their_words_translated(api, monkeypatch):

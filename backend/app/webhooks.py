@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
-from app import building, elevenlabs, llm, voicenote
+from app import ack, building, elevenlabs, llm, voicenote
 
 logger = logging.getLogger("backend")
 
@@ -142,6 +142,7 @@ async def record_inbound(form: dict) -> None:
             english = body if llm.is_english(case.get("language")) else await llm.translate(body, "en")
             hcdb().add_event(case["id"], "sms_in", "resident", text_original=body, text_en=english,
                              payload={"from": phone, **((note or {}).get("payload") or {})})
+            await ack.acknowledge(case, body, note)  # "got it" back to the resident, in their language
     except Exception:
         logger.exception("inbound message failed")
 
