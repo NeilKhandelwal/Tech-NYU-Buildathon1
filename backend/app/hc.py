@@ -324,6 +324,23 @@ async def callback(case_id: str) -> dict:
     return {"ok": True, "conversation_id": conversation_id}
 
 
+class CaseworkerText(BaseModel):
+    text_en: str
+
+
+@app.post("/api/cases/{case_id}/sms", status_code=201)
+async def caseworker_text(case_id: str, body: CaseworkerText) -> dict:
+    if not body.text_en.strip():
+        raise HTTPException(status_code=422, detail="text_en is empty")
+    if sms is None:
+        raise HTTPException(status_code=503, detail="sms module missing")
+    case = fetch(case_id)
+    # the caseworker wrote it and clicked Send: that is the human check, so no template.
+    # sms.send_sms, not send_sms above: localized() would swap any non-confirmation kind for
+    # the receipt template and send that instead of the caseworker's words
+    return await sms.send_sms(case, "caseworker", body.text_en.strip())
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
