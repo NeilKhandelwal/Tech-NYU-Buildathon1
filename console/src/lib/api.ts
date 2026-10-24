@@ -49,3 +49,7 @@ export function startCallback(caseId: string): Promise<{ ok: boolean; conversati
 export function sendText(caseId: string, textEn: string): Promise<CaseEvent> {
   return post(`/api/cases/${caseId}/sms`, { text_en: textEn });
 }
+
+// Closing takes the case off the open queue (status resolved); the record and timeline stay.
+export const closeCase = (caseId: string) => post(`/api/cases/${caseId}/close`, {});
+export const reopenCase = (caseId: string) => post(`/api/cases/${caseId}/reopen`, {});

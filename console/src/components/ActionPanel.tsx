@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { saveAction, startCallback } from "@/lib/api";
+import { closeCase, reopenCase, saveAction, startCallback } from "@/lib/api";
 import { callState, type CallState } from "@/lib/callback";
 import { ACTIONS, RESPONSE_LABEL, messageTemplate, type Case, type CaseEvent, type CaseworkerAction } from "@/lib/types";
 
@@ -23,6 +23,8 @@ export function ActionPanel({ c, events, open, onToggle }: {
   const [dirty, setDirty] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // closing/reopening is one POST; the poll brings the new status within a couple of seconds
+  const [busy, setBusy] = useState<"closing" | "reopening" | null>(null);
 
   const derived = callState(events);
   // from the click until the callback_call event lands, the data still says idle
@@ -45,11 +47,28 @@ export function ActionPanel({ c, events, open, onToggle }: {
       await startCallback(c.id);
       setDirty(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`Couldn't call: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSending(false);
     }
   }
+
+  async function setClosed(close: boolean) {
+    setError(null);
+    setBusy(close ? "closing" : "reopening");
+    try {
+      await (close ? closeCase(c.id) : reopenCase(c.id));
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      // an API from before /close answers 404: say what fixes it rather than just "Not Found"
+      const hint = /not found|404/i.test(why) ? " (the API needs redeploying with the close endpoint)" : "";
+      setError(`Couldn't ${close ? "close" : "reopen"} the case: ${why}${hint}`);
+    } finally {
+      // hold the label until the refetch shows the new status, so the button doesn't flicker back
+      setTimeout(() => setBusy(null), 2500);
+    }
+  }
+  const closed = c.status === "resolved";
 
   // a live call always holds the footer; a finished one holds it until the message changes
   const live = state === "sending" || state === "calling" || state === "answered";
@@ -158,13 +177,17 @@ export function ActionPanel({ c, events, open, onToggle }: {
         error={error}
         reply={c.resident_response ? RESPONSE_LABEL[c.resident_response] ?? c.resident_response : null}
         note={c.resident_response_note_en}
+        closed={closed}
+        busy={busy}
+        onClose={() => setClosed(true)}
+        onReopen={() => setClosed(false)}
       />
     </section>
   );
 }
 
 // The footer is the call: one approve button, then the call's progress from the case's events.
-function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note }: {
+function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note, closed, busy, onClose, onReopen }: {
   state: CallState | "sending";
   lang: string;
   canCall: boolean;
@@ -173,6 +196,10 @@ function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note
   error: string | null;
   reply: string | null;
   note: string | null;
+  closed: boolean;
+  busy: "closing" | "reopening" | null;
+  onClose: () => void;
+  onReopen: () => void;
 }) {
   const approve = (text: string) => (
     <button
@@ -184,8 +211,37 @@ function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note
     </button>
   );
 
+  const live = state === "sending" || state === "calling" || state === "answered";
+  // Close sits apart from the call, at the far right: finishing the case is not a message
+  const closeButton = !live && (
+    <button
+      onClick={onClose}
+      disabled={busy !== null}
+      className="ml-auto flex min-h-10 items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 transition-colors hover:border-zinc-900 hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 disabled:opacity-50"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4">
+        <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {busy === "closing" ? "Closing…" : "Close case"}
+    </button>
+  );
+
   let body;
-  if (state === "sending" || state === "calling") {
+  if (closed) {
+    body = (
+      <div className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-[15px] font-bold text-zinc-900">Case closed</span>
+        <span className="text-[15px] text-zinc-600">Off the open queue. The record and its timeline stay.</span>
+        <button
+          onClick={onReopen}
+          disabled={busy !== null}
+          className="ml-auto min-h-10 rounded-lg border border-zinc-900 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-50"
+        >
+          {busy === "reopening" ? "Reopening…" : "Reopen"}
+        </button>
+      </div>
+    );
+  } else if (state === "sending" || state === "calling") {
     body = (
       <>
         <span className="inline-flex min-h-12 items-center gap-2.5 rounded-lg bg-zinc-950 px-5 text-base font-semibold text-white">
@@ -214,8 +270,8 @@ function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note
         <span className="text-[15px] text-zinc-800">
           {reply ? <><b>Resident: {reply}.</b> {note}</> : `Message delivered in ${lang}.`}
         </span>
-        <span className="flex-1" />
         <span className="text-xs text-zinc-500">Edit the message to call again.</span>
+        {closeButton}
       </div>
     );
   } else if (state === "no_answer") {
@@ -223,8 +279,8 @@ function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note
       <div className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-[15px] font-bold text-amber-700">No answer</span>
         <span className="text-[15px] text-zinc-800">They didn&apos;t pick up.</span>
-        <span className="flex-1" />
         {approve(`Call again in ${lang}`)}
+        {closeButton}
       </div>
     );
   } else {
@@ -234,6 +290,7 @@ function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note
         <span className="text-sm text-zinc-600">
           {notSubmitted ? "The resident hasn't submitted this case yet." : "Nothing reaches the resident until you approve."}
         </span>
+        {closeButton}
       </>
     );
   }
@@ -241,7 +298,7 @@ function Footer({ state, lang, canCall, onCall, notSubmitted, error, reply, note
   return (
     <div className="border-t border-zinc-200 bg-zinc-50 px-6 py-3">
       <div className="flex min-h-12 flex-wrap items-center gap-3">{body}</div>
-      {error && <p className="mt-2 text-sm font-medium text-red-700">Couldn&apos;t call: {error}</p>}
+      {error && <p className="mt-2 text-sm font-medium text-red-700">{error}</p>}
     </div>
   );
 }

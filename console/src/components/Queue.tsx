@@ -27,6 +27,8 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
   now: number;
 }) {
   const [tab, setTab] = useState<"cases" | "calls">("cases");
+  // folded to a thin rail so the case gets the width; the list keeps its state underneath
+  const [folded, setFolded] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [issue, setIssue] = useState<ComplaintType | "all">("all");
   const shown = cases
@@ -37,7 +39,32 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
   const byId = new Map(cases.map((c) => [c.id, c]));
 
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-r border-zinc-200 bg-white">
+    <aside
+      className={`relative flex shrink-0 overflow-hidden border-r border-zinc-200 bg-white transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${
+        folded ? "w-14" : "w-[360px]"
+      }`}
+    >
+      {folded && (
+        <button
+          onClick={() => setFolded(false)}
+          aria-label="Show the case list"
+          aria-expanded={false}
+          className="absolute inset-0 z-10 flex flex-col items-center gap-4 pt-3 text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-zinc-900"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4">
+            <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="text-lg font-semibold tabular-nums text-zinc-900">{cases.filter(isOpen).length}</span>
+          <span className="-mt-3 text-[10px] font-semibold uppercase tracking-wider">Open</span>
+          {live.length > 0 && (
+            <span className="flex flex-col items-center text-red-700">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-600" />
+              <span className="mt-1 text-[10px] font-semibold uppercase">{live.length} live</span>
+            </span>
+          )}
+        </button>
+      )}
+      <div className={`flex w-[360px] shrink-0 flex-col ${folded ? "invisible" : ""}`}>
       {live.length > 0 && (
         <div className="border-b border-red-100 bg-red-50/60">
           <h2 className="flex items-center gap-2 px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wider text-red-700">
@@ -64,6 +91,16 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
             {t === "cases" ? `Cases · ${shown.length}` : `Calls · ${calls.length}`}
           </button>
         ))}
+        <button
+          onClick={() => setFolded(true)}
+          aria-label="Hide the case list"
+          aria-expanded={true}
+          className="-mt-1 mb-1 ml-auto flex h-7 w-7 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4">
+            <path d="M10 4L6 8l4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
 
       {tab === "cases" ? (
@@ -141,6 +178,7 @@ export function Queue({ cases, calls, selection, onSelectCase, onSelectCall, fre
           )}
         </ol>
       )}
+      </div>
     </aside>
   );
 }
