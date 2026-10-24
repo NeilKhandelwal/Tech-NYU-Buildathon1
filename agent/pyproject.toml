@@ -1,0 +1,15 @@
+[project]
+name = "agent"
+version = "0.1.0"
+description = "Provisions the ElevenLabs voice agent and its server tools"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx",
+    "python-dotenv",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
