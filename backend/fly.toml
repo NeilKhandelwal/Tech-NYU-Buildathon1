@@ -1,0 +1,28 @@
+# Heat Check API on Fly. Secrets (fly secrets set): HC_DATABASE_URL (Supabase), ELEVENLABS_API_KEY,
+# ELEVENLABS_CALLBACK_AGENT_ID, ELEVENLABS_PHONE_NUMBER_ID, ELEVENLABS_WEBHOOK_SECRET,
+# HC_TOOL_SECRET, GEMINI_API_KEY / XAI_API_KEY, TWILIO_*.
+app = "heatcheck-nyu"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile.hc"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # always on: ElevenLabs' tool webhooks time out long before a cold start finishes
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
