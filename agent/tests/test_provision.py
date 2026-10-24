@@ -107,7 +107,7 @@ def test_analysis_comes_back_in_english_for_the_caseworker():
 
 def test_complaint_types_match_the_backend():
     """hc.py maps an unknown type to 'other'; drift would file every pothole as 'other'."""
-    body = HC.read_text().split("COMPLAINT_TYPES = [", 1)[1].split("]", 1)[0]
+    body = re.search(r"COMPLAINT_TYPES = [[(](.*?)[])]", HC.read_text(), re.S).group(1)
     assert provision.COMPLAINT_TYPES == re.findall(r'"(\w+)"', body)
 
 
