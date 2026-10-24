@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -167,7 +167,7 @@ class SubmitCase(BaseModel):
 
 
 @app.post("/api/tools/submit_case", dependencies=[Depends(tool_auth)])
-async def submit_case(body: SubmitCase) -> dict:
+async def submit_case(body: SubmitCase, tasks: BackgroundTasks) -> dict:
     if not body.resident_confirmed:
         # the resident's spoken yes is the human check on this side; no yes, no submit
         return {"ok": False, "error": "only submit after the resident says yes to sending it"}
@@ -177,6 +177,9 @@ async def submit_case(body: SubmitCase) -> dict:
     if case["status"] == "intake":
         case = hcdb.update_case(case["id"], status="submitted")
         hcdb.add_event(case["id"], "submitted", "resident")
+        # building + priority after the response, so the case reaches the console complete
+        # while the resident is still on the line (webhooks.enrich never raises)
+        tasks.add_task(webhooks.enrich, case["id"])
         await send_sms(case, "confirmation",
                        f"Heat Check: your no-heat complaint {case['case_number']} was sent to the "
                        f"city caseworker. We'll call you back in {case['language_label']}.")
