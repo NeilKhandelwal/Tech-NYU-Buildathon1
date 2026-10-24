@@ -61,3 +61,4 @@ alter table events disable row level security;
 -- project; safe to re-run.
 alter table cases add column if not exists complaint_type text not null default 'heat';
 alter table cases add column if not exists description text;
+alter table cases add column if not exists followup text not null default 'call';
