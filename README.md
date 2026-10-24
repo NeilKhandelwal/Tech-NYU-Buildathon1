@@ -1,263 +1,135 @@
-# CityLine (placeholder name) — an ElevenLabs voice agent that files cases while you talk
+<h1 align="center">City<em>Line</em></h1>
 
-A voice intake line for local-government service requests, with a live case desk.
+<p align="center"><strong>311 that speaks your language, and a caseworker console that talks back.</strong></p>
 
-## What it is
+CityLine is a voice line for city service complaints, built first for New York tenants who have no heat. A resident calls one number and speaks in their own language. A voice agent takes the complaint, checks it against the city's heat law in real time, and files it only after the resident says yes. The case lands on a caseworker console already translated into English and paired with the building's history. When the caseworker decides what happens next, CityLine calls the resident back and delivers that decision in their language.
 
-A resident calls the City services line. An ElevenLabs voice agent answers, takes their name and
-phone number, opens a service request while they are still explaining it, classifies the issue,
-and reads back a case ID plus a three-word lookup code. A second, unrelated problem on the same
-call opens its own case, with its own ID and code. When the resident calls back and says their
-three words, the agent reads the current status. The phone number is discovery; the code is
-authentication, so knowing a number or a case ID gets you nothing.
+The people who struggle most with 311 are often elderly or not comfortable in English, and every step of a heat complaint today happens in English, through phone menus, during working hours. CityLine removes the language barrier on both ends of the conversation. The city is the customer, and the resident never has to download anything.
 
-Staff watch the same call in a Next.js dashboard: the call appears the moment it starts, the
-transcript streams line by line, the case fields fill in mid-call, and the new case lands at the
-top of the list — no refresh. Staff change status, add notes, and see an audit trail of every
-change with who made it (`staff` vs `voice`). A caller who asks for a person flags the call
-`needs_person` and the line stays open.
+## How it works
 
-## Architecture
-
-```
- mic ──► ElevenLabs Agents (STT · LLM · TTS · turn-taking)        dashboard/ (Next.js) ◄── Chrome
-   ▲  WebRTC         │ server tools: POST /voice/tools/*                ▲  fetch + WS /ws
-   │                 │ post-call webhook: POST /voice/webhooks/post-call │
- /call page ─────────┼──► backend/ (FastAPI + SQLAlchemy Core) ── broadcast {type,id} ┘
- (@elevenlabs/react) │       tables: cases · calls · call_cases · transcript · case_events
-   relays transcript ┘
+```mermaid
+flowchart LR
+    R([Resident calls in their language]) --> I[Intake agent]
+    I --> Y{Resident confirms the details}
+    Y -->|yes| C[Caseworker console]
+    C --> K{Caseworker picks an action}
+    K -->|clicks Call back| B[Callback agent]
+    B --> R2([Resident hears the decision in their language])
+    R2 -->|reply| C
 ```
 
-Two processes we run, one we configure. The voice agent lives in ElevenLabs; its prompt and its
-five tool schemas live in [agent/provision.py](agent/provision.py), which creates or updates the
-agent from code. Everything the agent does to a case is an HTTP call into the backend
-([docs/CONTRACT.md](docs/CONTRACT.md) "## ElevenLabs voice").
+**On the resident's side,** the intake agent says it is an AI assistant, asks one question at a time, and collects the name, address, unit, how long the heat has been out and the temperature inside. It compares that reading with the outdoor temperature at that hour and tells the resident whether it may be a violation. It reads everything back and submits nothing until the resident agrees. A confirmation text then arrives in the resident's language, and the resident can reply by text or by voice note.
 
-**Real-time.** After every write the backend pushes `{"type": "case"|"call"|"transcript", "id": ...}`
-on `WS /ws`. The socket carries no payload; clients refetch what they are showing. Refetch is
-idempotent, so duplicate or out-of-order frames cannot corrupt UI state. There is one socket per
-page, shared by everything on it. The 2-second poll is a fallback that exists only while that
-socket is down.
+**On the city's side,** the caseworker sees a live queue and every call while it is happening, with each line translated into English as it is spoken. A case shows the original transcript next to the English, the heat-law check, and the building's open violations and complaint history from NYC Open Data. The caseworker chooses an action, edits the message in English, and clicks once to have it delivered as a phone call in the resident's language.
 
-**Voice.** ElevenLabs Agents runs the whole conversation: Scribe speech-to-text, the LLM, ElevenLabs
-TTS, interruption handling and turn-taking. The browser joins over WebRTC with a short-lived
-conversation token that the backend mints (`POST /voice/session`), so the API key never leaves the
-server. The session carries one dynamic variable, `call_id`, and every server tool reads it from
-there, never from the LLM, so the model cannot write to someone else's call.
+There is a human checkpoint on each side. Nothing reaches the city without the resident's yes, and nothing reaches the resident without the caseworker's click. Heat complaints get the full violation check, and the same line also takes hot water, potholes, missed pickups, streetlights, water, noise and animal reports. The agents have been tested in Hindi, Spanish and English.
 
-The five tools (`create_case`, `update_case`, `lookup_case`, `add_note`, `transfer_to_staff`) are
-**server tools**: webhooks into `/voice/tools/*`, authenticated with a shared `X-Voice-Secret`.
-Hang-up is ElevenLabs' built-in `end_call`. A webhook is stateless, so the per-call state the old
-in-process agent held — which case is being worked, whether it is filed, whether its lookup code
-may be read out — is rebuilt from the database on every request. Every tool answers 200 with a
-sentence; a failure is something the agent can say, never a silent 4xx.
+## What's in the repository
 
-The `/call` page relays the SDK's live transcript to the backend line by line, so staff watch the
-call as it happens. When the call ends, ElevenLabs' post-call webhook (HMAC-verified) writes its own
-call summary onto the call, backfills the transcript if nothing was streamed, and closes the call.
+| Folder | What it holds |
+|---|---|
+| `agent/` | `provision.py` defines the intake and callback voice agents, their prompts and their tools, and creates or updates them in ElevenLabs |
+| `backend/` | The FastAPI service. `app/hc.py` is the CityLine API, with the heat rule, translation, texting and the call log in the modules around it |
+| `console/` | The caseworker console, a Next.js app that reads cases live from Supabase |
+| `supabase/` | The database schema, applied once to a Supabase project |
+| `dashboard/` | The original 311 case desk this project grew out of, served by `app/main.py` |
+| `docs/` | The decision log and the roadmap |
 
-## Data model
+The API contract is in [CONTRACT.md](CONTRACT.md), the agent prompts in [AGENTS.md](AGENTS.md), the console spec in [DASHBOARD.md](DASHBOARD.md), and the demo script in [PITCH.md](PITCH.md).
 
-**Cases** (`cases`). One service request. The row id is an integer primary key; the public id
-is `"C-" + (1000 + id)`, derived in the API layer, so the first case is `C-1001` and the agent has a short number to read
-aloud. `phone` is stored digits-only. `issue_type` is one of `missed_pickup`, `pothole`,
-`streetlight`, `water`, `animal`, `other` — and is **null until classified**, because the agent
-opens the case before it knows the type. `status` is `open | in_progress | resolved` and only staff
-set it. `notes` is not a column: it is derived from the case's `note` events, joined oldest first
-(see **Notes** below).
+## Run it locally
 
-**Calls** (`calls`). One voice session, public id `"CALL-" + id`. A call is not a case: one case
-collects many calls (the report, then the follow-up), and a lookup-only call should not create a
-junk case. A call carries `status` (`active | needs_person | ended`), `room` (unused since the move off
-LiveKit, kept so old rows still read), `summary` (ElevenLabs' post-call summary), and
-`transfer_reason`. `case_id` is only a **cursor** — the case the agent is working right now.
-Ending a call stamps `ended_at`; a PATCH that tries to revive an ended call gets a 409.
+The backend and the console run on your machine. The voice agents run in ElevenLabs and reach your backend through a tunnel, and the data lives in a Supabase project you create. Texting through Twilio is optional.
 
-**Call ↔ case links** (`call_cases`). The join table is the truth about every case a call touched:
-`(call_id, case_id)` primary key, `how` = `created | looked_up`, and `linked_at`. Call JSON exposes
-`case_ids` in link order alongside the `case_id` cursor. Linking is idempotent — `POST
-/calls/{id}/cases` returns 201 for a new link, 200 when it already existed — so a retry after a
-transient failure cannot duplicate anything.
+### What you need
 
-**Audit** (`case_events`). Append-only. `POST /cases` writes a `created` row; a PATCH writes one row
-per field that actually changed (re-sending the same value writes nothing); linking writes
-`call_linked`; a successful code lookup writes `looked_up`; a note writes `note`. `source` comes from the `X-Source`
-header — `staff` by default, `voice` from the agent, `seed` for the seeded rows. Timestamps are
-second-resolution, so ordering relies on `ORDER BY id`.
+- [uv](https://docs.astral.sh/uv/), which installs Python 3.13 for you, and Node 20.9 or newer.
+- `cloudflared` for the tunnel, installed with `brew install cloudflared`.
+- Accounts with Supabase and ElevenLabs, plus Twilio if you want real phone calls and texts.
+- An LLM API key for translation and summaries. The supported providers and their variable names are listed in `backend/app/llm.py`.
 
-**Notes.** A note is a `case_events` row with `field="note"` and the text in `new_value`, so it has
-its own source and timestamp. `POST /cases/{id}/notes {text}` appends one — a single write, so two
-people adding a note in the same second no longer overwrite each other. `Case.notes` is still in the
-JSON, derived from those rows; `PATCH /cases/{id}` refuses `notes` with a 422 rather than ignoring it.
+### 1. Create the database
 
-**Storage.** `DATABASE_URL` picks the database — unset means a SQLite file at `backend/cases.db`, so
-a local clone needs no infrastructure; compose and CI run `postgresql+psycopg://…` against
-`postgres:16`. The schema lives in Alembic migrations under `backend/migrations/`, applied by
-`alembic upgrade head` at app startup and in the Docker entrypoint; nothing else creates or alters a
-table, and a database written before those migrations is refused at startup rather than half-upgraded
-in place. `CITY_ID` (default `1`, the seeded city) names the city this deployment serves: every read
-is filtered to it and every write records it. Foreign keys are on (SQLite gets `PRAGMA foreign_keys=ON` per connection), so the database
-itself rejects a call linked to a case that does not exist, and `lookup_code` is unique. Every row also carries a `city_id`,
-defaulted to the one seeded city — internal for now, and not in any response.
+Make a Supabase project and paste [supabase/schema.sql](supabase/schema.sql) into its SQL editor once. Keep three values from the project settings, which are the session pooler connection string, the project URL and the publishable key.
 
-**Reading only what changed.** `GET /cases?since=<ISO>` and `GET /calls?since=<ISO>` return rows
-written at or after the cursor; calls carry an `updated_at` that every write to the call bumps,
-transcript lines included. Inclusive on purpose — timestamps are second-resolution, so a strict
-comparison would silently drop anything written in the cursor's own second. A `since` that is not a
-timestamp is a 422, not an empty list.
-
-**Lookup codes.** Three words drawn from a 300-word list (27 million combinations), generated on
-case creation and checked for collisions against the table. `POST /cases` is the only response that
-carries `lookup_code`; the `Case` model has no such field, so it can never leak from a read.
-`GET /cases/lookup?code=` normalizes what the caller said — lowercase, split on spaces, commas and
-dashes, drop the fillers `and` and `dash` — so "Blue and River dash Maple" matches `blue-river-maple`.
-Unknown and malformed codes get the same 404 (`no case for that code`) so the endpoint is not an
-oracle, and five wrong codes on one `X-Call-Id` returns 429.
-
-## Run locally
-
-**Prereqs:** [uv](https://docs.astral.sh/uv/) (installs Python 3.13 itself), Node 20.9+, an
-ElevenLabs account, and a tunnel so ElevenLabs can reach your local backend
-(`brew install cloudflared`). Without ElevenLabs everything except the voice call works.
+### 2. Start the backend
 
 ```sh
-# 0. a shared secret for the tool webhooks
-python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+cd backend
+cp .env.example .env
+uv sync
+uv run uvicorn app.hc:app --reload --port 8000
+```
 
-# 1. backend (http://localhost:8000, SQLite file backend/cases.db; override with DATABASE_URL=<url>)
-cd backend && cp .env.example .env    # ELEVENLABS_API_KEY, VOICE_TOOL_SECRET; agent id after step 3
-uv sync && uv run python -m scripts.seed && uv run uvicorn app.main:app --reload --port 8000
+Fill in `backend/.env` before you start it.
 
-# 2. public URL for the backend (prints https://<random>.trycloudflare.com)
+| Variable | Value |
+|---|---|
+| `HC_DATABASE_URL` | The Supabase session pooler connection string |
+| `HC_TOOL_SECRET` | Any random string, made with `python3 -c "import secrets; print(secrets.token_urlsafe(24))"` |
+| `ELEVENLABS_API_KEY` | An ElevenLabs key with Agents read and write access |
+| `ELEVENLABS_INTAKE_AGENT_ID` and `ELEVENLABS_CALLBACK_AGENT_ID` | Printed by step 4 |
+| `ELEVENLABS_WEBHOOK_SECRET` | Shown once when you create the post-call webhook in step 4 |
+| LLM key | One key for translation and summaries, named as in `backend/app/llm.py` |
+
+The example file also lists settings for the original case desk, such as `VOICE_TOOL_SECRET`. CityLine reads `HC_TOOL_SECRET` instead.
+
+### 3. Open a tunnel
+
+```sh
 cloudflared tunnel --url http://localhost:8000
-
-# 3. create the ElevenLabs agent and its tools, pointed at that URL
-cd agent && cp .env.example .env      # ELEVENLABS_API_KEY, PUBLIC_BACKEND_URL, VOICE_TOOL_SECRET
-uv sync && uv run python provision.py # prints the agent id: put it in agent/.env and backend/.env,
-                                      # then restart the backend. Re-run after editing the prompt,
-                                      # or whenever the tunnel URL changes.
-
-# 4. dashboard (http://localhost:3000; open it at localhost, not 127.0.0.1, for CORS)
-cd dashboard && npm install && npm run dev
 ```
 
-**Post-call webhook** (summaries, and the backstop that ends a call): in the ElevenLabs dashboard,
-go to Agents → Settings → Webhooks, add `https://<tunnel>/voice/webhooks/post-call` with the
-**Transcript** event, then copy its HMAC secret into `ELEVENLABS_WEBHOOK_SECRET` in
-`backend/.env`. The call works without it. You just won't get the ElevenLabs summary.
+This prints a public `https://…trycloudflare.com` address. ElevenLabs and Twilio use it to reach your backend.
 
-- Env vars: `NEXT_PUBLIC_API_URL` (dashboard → backend, default `http://localhost:8000`), `CORS_ORIGINS` (backend, comma-separated, default `http://localhost:3000`), `DATABASE_URL` (backend; unset means the SQLite file), and the `ELEVENLABS_*` / `VOICE_TOOL_SECRET` set above. All of them are listed in the matching `.env.example`.
-- Staff login: set `AUTH_SECRET` (`openssl rand -base64 32`) and `STAFF_USERS="name:hash,..."` in `dashboard/.env.local`, where each hash comes from `cd dashboard && npm run hash-password -- <password>`. **Dev-only shortcut:** leave `STAFF_USERS` unset and dashboard auth is disabled entirely. Never deploy with it unset.
-
-Then open http://localhost:3000/call and press **Start call** (Chrome asks for the mic once).
-
-Reset to a clean state at any time: `cd backend && uv run python -m scripts.reset_demo` — wipes all
-tables and reseeds the 3 sample cases, printing each case's lookup code.
-
-### Run with docker
+### 4. Create the voice agents
 
 ```sh
-docker compose up --build            # postgres + backend :8000 (migrated and seeded) + dashboard :3000
-docker compose down                  # stop; add -v to also drop the postgres volume
+cd agent
+cp .env.example .env    # set PUBLIC_BACKEND_URL to the tunnel address and HC_TOOL_SECRET to the backend's value
+uv sync
+uv run python provision.py
 ```
 
-The voice agent needs no container: it runs in ElevenLabs. Point the tunnel at `localhost:8000`
-as above, and pass the `ELEVENLABS_*` / `VOICE_TOOL_SECRET` values through `backend/.env`.
+The script prints an id for each agent. Put both ids in `agent/.env` and `backend/.env`, then restart the backend. Run the script again whenever you edit a prompt or the tunnel address changes, and it will update the same agents.
 
-### CI
+Next, create a post-call webhook in your ElevenLabs workspace settings that points at `https://<tunnel>/api/webhooks/elevenlabs_post_call`. Copy its secret into `ELEVENLABS_WEBHOOK_SECRET`, and replace `POST_CALL_WEBHOOK_ID` in `agent/provision.py` with your webhook's id, because the file currently holds ours.
 
-`.github/workflows/ci.yml` runs on every push to `main` and every PR: backend pytest on SQLite and
-against `postgres:16` (the same suite both times), agent pytest, and dashboard lint + build.
+### 5. Start the console
 
-## Testing
+```sh
+cd console
+cp .env.example .env.local    # your Supabase URL and publishable key, and NEXT_PUBLIC_API_URL=http://localhost:8000
+npm install
+npm run dev
+```
 
-Everything runs offline, with no keys.
+Open http://localhost:3000 to see the queue.
 
-- `cd backend && uv run pytest` covers the endpoints, the audit log, call/case linking, code lookup,
-  notes-as-events, the `since` cursor, migrations, and `tests/test_voice.py`. That file drives the
-  server tools the way a call would: the lookup code is withheld until the case is filed, a filed
-  or looked-up case can't be rewritten, a second case waits for the first, partial phone numbers
-  are refused, wrong codes are rate-limited, and the post-call webhook's signature check, summary
-  write and transcript backfill all hold.
-- `cd agent && uv run pytest` checks the provisioned config against the backend: every tool takes
-  `call_id` from the session and not the LLM, every tool has a matching route and sends the
-  secret, and the `issue_type` enum matches the backend's.
-- `cd dashboard && npm run lint && npm run build`.
+### 6. Add demo cases
 
-## API
+```sh
+cd backend
+HC_DATABASE_URL="<your session pooler connection string>" uv run python -m scripts.hc_seed
+```
 
-FastAPI, [`backend/app/main.py`](backend/app/main.py). The full contract, including the shape of
-every payload, is in [docs/CONTRACT.md](docs/CONTRACT.md).
+This adds four older cases in different languages so the queue looks real. The script does not read `backend/.env`, so pass the connection string as shown. It is safe to run more than once.
 
-| Method | Path | Notes |
-|---|---|---|
-| `POST` | `/cases` | body `{name, phone, issue_type?, description}`; `issue_type` is null until classified. The only response that carries `lookup_code` |
-| `GET` | `/cases[?phone=&since=]` | newest first; `phone` matches digits only; `since` returns rows updated at or after an ISO timestamp (422 if it is not one) |
-| `GET` / `PATCH` | `/cases/{id}` | PATCH any of `status`, `issue_type`, `description`; header `X-Source` (`staff` default, agent sends `voice`). `notes` is refused with a 422 — it moved to the row below |
-| `POST` | `/cases/{id}/notes` | body `{text}` → 201 the `note` event; appends one note, `X-Source` as elsewhere |
-| `GET` | `/cases/lookup?code=` | three spoken words (`blue river maple`, `Blue and River dash Maple`) → the case; 404 `no case for that code` for unknown *and* malformed; 5th wrong code on one `X-Call-Id` → 429 |
-| `GET` | `/cases/{id}/events` | audit log, oldest first |
-| `GET` | `/cases/{id}/calls` | that case's calls with transcripts |
-| `POST` / `GET` | `/calls[?status=&room=&since=]` | a call record per voice session; `since` as on `/cases`, against the call's `updated_at` |
-| `GET` / `PATCH` | `/calls/{id}` | PATCH `status` (`active` \| `needs_person` \| `ended`), `case_id`, `summary`, `transfer_reason`; a call reads back `case_id` (the case being worked now) and `case_ids` (every case it touched, in link order) |
-| `POST` | `/calls/{id}/cases` | body `{case_id, how}` (`created` \| `looked_up`); links the case and makes it the current one. 201 new link, 200 already linked, 404 unknown call or case. One `call_linked` event per (case, call) |
-| `POST` | `/calls/{id}/transcript` | `{role: user\|agent, text}` |
-| `GET` | `/stats[?since=&until=]` | containment over a window of `started_at` (both bounds inclusive, 422 if not ISO): `{calls, contained, needs_person, active, containment}`; `containment` is null, not 0, when nothing in the window has been handled |
-| `POST` | `/voice/session` | opens a call and returns `{call_id, token}`: an ElevenLabs WebRTC conversation token for the browser |
-| `POST` | `/voice/tools/{create_case,update_case,lookup_case,add_note,transfer_to_staff}` | ElevenLabs server tools; `X-Voice-Secret` required; always 200 `{result}` |
-| `POST` | `/voice/webhooks/post-call` | ElevenLabs post-call webhook, HMAC-verified: summary, transcript backfill, ends the call |
-| `GET` | `/health` | `{"ok": true}`; the dashboard uses it to show "Backend unreachable" |
-| `WS` | `/ws` | one `{type, id}` frame after every write; clients refetch |
+### 7. Make a call
 
-Agent tools ([`agent/provision.py`](agent/provision.py)): `create_case(name, phone)` ·
-`update_case(issue_type?, description?)` · `lookup_case(code)` · `add_note(note)` ·
-`transfer_to_staff(reason)` · built-in `end_call`.
+You can talk to the intake agent from its page in the ElevenLabs dashboard, and the case appears on the console when you confirm it. To use a real phone, import a Twilio number into ElevenLabs, assign it to the intake agent, and set `ELEVENLABS_PHONE_NUMBER_ID` in `backend/.env` so call-backs come from that number.
 
-## Roadmap
+For texts, set the `TWILIO_*` values in `backend/.env`. US text messaging requires a carrier registration that takes days, so the demo sends over the Twilio WhatsApp sandbox with `TWILIO_CHANNEL=whatsapp`, and each phone joins the sandbox once. Point the sandbox's incoming message webhook at `https://<tunnel>/api/webhooks/twilio_sms` so replies and voice notes reach the case.
 
-[docs/ROADMAP.md](docs/ROADMAP.md) — five phases, each item with a "done when", plus the working
-agreement the repo runs on.
+### Run the tests
 
-## Decisions
+```sh
+cd backend && uv run pytest
+cd agent && uv run pytest
+cd console && npm run lint && npm run build
+```
 
-[docs/DECISIONS.md](docs/DECISIONS.md) — one line per decision worth defending: what, why, and what
-it cost. [docs/CONTRACT.md](docs/CONTRACT.md) is the API contract every feature is agreed against
-before it is built.
+## Current status
 
-## Known limitations
-
-- Lookup codes are stored in plaintext, so anyone with database or dashboard access can read one. A
-  caller who has lost their code has no self-service path: staff verify them another way and read it
-  out of the database.
-- Cases whose `lookup_code` is NULL — rows written before the column existed — cannot be reached by
-  voice at all.
-- The wrong-code counter is a module-level dict keyed by call id: single process, cleared on
-  restart, and a caller who guesses wrong five times can still get in with the right code
-  afterwards. It slows guessing on one call; it is not a real rate limiter.
-- A second case is refused until the current one has both an issue type and a description, so a
-  caller who raises two problems must finish describing the first. The agent's read-back of two IDs
-  and two codes is only as reliable as the LLM.
-- Foreign keys are public-ID strings (`calls.case_id` = `"C-1001"`) and `PRAGMA foreign_keys` is
-  off; integrity is app-enforced by 404-before-write in `main.py`.
-- `calls.case_id` moves to whichever case the agent is working; the full list lives in `call_cases`,
-  and a client that only reads the cursor sees the last one.
-- `case_events` only covers case writes: a call's status or summary changing leaves no audit row.
-- The issue-type enum is written out in three places (backend `Literal`, agent prompt, dashboard
-  array) — deliberate under "hardcode it twice"; the third copy is the signal to centralise it.
-- `db.connect()` connections are released by CPython refcounting, not closed explicitly. Fine for
-  one process.
-- The home page does one `GET /calls/{id}` per active call on every refresh (N+1).
-- If the browser tab dies mid-call and the post-call webhook isn't configured, the call stays
-  `active`; `reset_demo` is the only fix.
-- `call_id` is a dynamic variable the browser sets, so a resident with devtools could point their
-  session at another active call id. Tools still need the shared secret, which only ElevenLabs has;
-  binding the token to the call server side is the fix.
-- The tool secret sits in the agent's config in ElevenLabs as a plain header value, not a
-  workspace secret.
-- Phone calls (ElevenLabs + Twilio) aren't wired up yet: a call that doesn't start from `/call`
-  has no `call_id`, so its tools answer with "couldn't reach the case system".
-
-## Credits
-
-Scaffolding: `dashboard/` from `create-next-app`, `backend/` from a personal FastAPI + uv project template (layout and
-tooling only).
+CityLine is a working demo, not a city system. It is not connected to the real 311 or HPD, and its case numbers are its own. Line-by-line live transcripts on the console depend on ElevenLabs realtime monitoring, which is an Enterprise feature. Without it, calls still appear live and the full transcript arrives when the call ends. More complaint types, real agency integration and landlord outreach are next on the [roadmap](docs/ROADMAP.md).
