@@ -10,6 +10,7 @@ dependencies = [
     "pytest>=9.1.1",
     "sqlalchemy>=2.0.43",
     "uvicorn[standard]>=0.52.4",
+    "websockets>=15",
 ]
 
 [tool.pytest.ini_options]
