@@ -18,7 +18,9 @@ async def twilio_send(to_digits: str, body: str) -> tuple[str, str | None, str |
                          ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"))
     if not (sid and token and from_):
         return "skipped", None, None
-    to = "+" + to_digits if len(to_digits) == 11 else "+1" + to_digits[-10:]
+    # hcdb.digits stores US numbers as ten digits and keeps any other country code, e.g. a
+    # +91 WhatsApp number is 919108651858
+    to = "+1" + to_digits if len(to_digits) == 10 else "+" + to_digits
     # US texts from an unregistered number die with 30034 (A2P 10DLC takes days), so the demo
     # sends over WhatsApp: same API, both ends prefixed, From is the sandbox number
     if os.environ.get("TWILIO_CHANNEL") == "whatsapp":
