@@ -64,13 +64,30 @@ async def process_intake(case: dict, data: dict) -> None:
     hcdb().update_case(case["id"], **fields)
 
 
+async def enrich(case_id) -> None:
+    """Run at submit, while the resident is still on the line: building history, priority and
+    the rule's suggested action, so the case doesn't land on the console as an empty 'normal'.
+    The post-call webhook later adds transcript and summary and recomputes both. Never raises."""
+    try:
+        case = hcdb().get_case(case_id)
+        if case is None:
+            return
+        found = await building.building_lookup(case.get("address") or "", case.get("borough"))
+        fields = {"building": found, "priority": llm.priority(case, found)}
+        if not case.get("suggested_action"):
+            fields["suggested_action"] = llm.suggest(case)
+        hcdb().update_case(case_id, **fields)
+    except Exception:
+        logger.exception("enrich failed for case %s", case_id)
+
+
 async def process_callback(case: dict, data: dict) -> None:
     transcript = llm.transcript_text(data.get("transcript") or [])
     english = transcript if llm.is_english(case.get("language")) else \
         await llm.translate(transcript, "en")
     db = hcdb()
     db.add_event(case["id"], "callback_call", "callback_agent", text_original=transcript,
-                 text_en=english, payload={"conversation_id": data.get("conversation_id"),
+                 text_en=english, payload={"conversation_id": data.get("conversation_id"), "stage": "ended",
                                            "summary": (data.get("analysis") or {}).get("transcript_summary")})
     if not case.get("resident_response"):
         # the agent never recorded an answer: voicemail, hang-up or no pickup

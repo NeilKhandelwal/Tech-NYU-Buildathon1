@@ -106,3 +106,26 @@ def test_inbound_sms_lands_on_the_case(api):
     assert r.status_code == 200 and "<Response>" in r.text
     event = hcdb.list_events(case["id"])[-1]
     assert (event["type"], event["text_original"], event["text_en"]) == ("sms_in", "Thank you", "Thank you")
+
+
+def test_enrich_fills_building_and_priority_before_the_call_ends(api):
+    """The demo moment: the case pops into the console on the resident's yes, mid-call, and
+    must already show the repeat-offender building and its priority."""
+    import asyncio
+    from app import webhooks
+    case = case_with_conversation(days_without_heat=1, indoor_f=64)
+    asyncio.run(webhooks.enrich(case["id"]))
+    got = hcdb.get_case(case["id"])
+    assert got["building"]["repeat_offender"] and got["priority"] == "high"
+    assert got["suggested_action"] == "schedule_inspection"
+    assert got["status"] == "submitted"  # enrich never moves the case; post-call does
+
+
+def test_callback_post_call_event_is_marked_ended(api, monkeypatch):
+    """/callback already logs a callback_call at dial time; the dashboard tells the two apart
+    by stage."""
+    monkeypatch.setenv("ELEVENLABS_CALLBACK_AGENT_ID", "agent-callback")
+    case = case_with_conversation(status="callback_requested")
+    api.post("/api/webhooks/elevenlabs_post_call", json=post_call(agent_id="agent-callback"))
+    [ended] = [e for e in hcdb.list_events(case["id"]) if e["type"] == "callback_call"]
+    assert ended["payload"]["stage"] == "ended"
