@@ -56,7 +56,7 @@ INTAKE_PROMPT = textwrap.dedent(
 
     Collect, skipping anything already given:
     1. What the problem is. Pick complaint_type from: {", ".join(COMPLAINT_TYPES)}.
-    2. Their name.
+    2. Their name. Take whatever name they give; never ask for a fuller name.
     3. The address (and apartment number for a home problem).
     4. Only for heat or hot_water: how many days it has been out, and the temperature
        inside. If they don't have a thermometer, ask if it feels very cold, cold or a little
