@@ -10,9 +10,7 @@
     "hash-password": "node scripts/hash.mjs"
   },
   "dependencies": {
-    "@livekit/components-react": "^2.9.24",
-    "@livekit/components-styles": "^1.2.0",
-    "livekit-client": "^2.22.1",
+    "@elevenlabs/react": "^1.19.1",
     "next": "16.3.3",
     "next-auth": "5.0.0-beta.32",
     "react": "19.2.8",

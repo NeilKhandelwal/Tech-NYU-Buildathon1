@@ -133,15 +133,16 @@ export type Stats = {
 export const getStats = (since?: string) =>
   request<Stats>(since ? `/stats?since=${encodeURIComponent(since)}` : "/stats");
 
-// ---- Browser call (see ../CONTRACT.md "## Browser call") ----
+// ---- Browser call (see ../CONTRACT.md "## ElevenLabs voice") ----
 
-export type Grant = { token: string; url: string; room: string };
+// The call record plus a WebRTC token for one ElevenLabs conversation; the API key stays server side.
+export type VoiceSession = { call_id: string; token: string };
 
-export const getToken = (identity: string) =>
-  request<Grant>(`/token?identity=${encodeURIComponent(identity)}`);
+export const startVoiceSession = () => request<VoiceSession>("/voice/session", json("POST", {}));
 
-export const listCallsByRoom = (room: string) =>
-  request<Call[]>(`/calls?room=${encodeURIComponent(room)}`);
+// The browser relays the SDK's live transcript; the post-call webhook backfills it if this missed.
+export const postTranscript = (callId: string, role: TranscriptLine["role"], text: string) =>
+  request<TranscriptLine>(`/calls/${callId}/transcript`, json("POST", { role, text }));
 
 // ---- Audit log (see ../CONTRACT.md "## Audit") ----
 
