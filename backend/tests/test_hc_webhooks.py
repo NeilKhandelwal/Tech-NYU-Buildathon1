@@ -219,3 +219,30 @@ def test_whatsapp_alias_routes_both_ways(api, monkeypatch):
     api.post("/api/webhooks/twilio_sms", content="From=whatsapp%3A%2B919108651858&Body=ok",
              headers={"Content-Type": "application/x-www-form-urlencoded"})
     assert hcdb.list_events(case["id"])[-1]["type"] == "sms_in"
+
+
+def test_caseworker_text_sends_their_words_translated(api, monkeypatch):
+    """The 'Text resident' box: the caseworker's own words go out in the resident's language,
+    never the receipt template, and land as an sms_out the console shows live."""
+    from app import llm, sms
+    sent = []
+
+    async def fake_send(phone, body):
+        sent.append((phone, body))
+        return "sent", "SM1", None
+
+    async def fake_translate(text, lang):
+        return f"[{lang}] {text}"
+
+    monkeypatch.setattr(sms, "twilio_send", fake_send)
+    monkeypatch.setattr(llm, "translate", fake_translate)
+    case = case_with_conversation(language="hi")
+    r = api.post(f"/api/cases/{case['id']}/sms", json={"text_en": "  Is the heat back on? "})
+    assert r.status_code == 201
+    assert sent == [("5551234567", "[hi] Is the heat back on?")]
+    event = r.json()
+    assert (event["type"], event["payload"]["kind"], event["text_en"]) == \
+        ("sms_out", "caseworker", "Is the heat back on?")
+    assert api.post(f"/api/cases/{case['id']}/sms", json={"text_en": " "}).status_code == 422
+    assert api.post("/api/cases/00000000-0000-0000-0000-000000000000/sms",
+                    json={"text_en": "hi"}).status_code == 404
