@@ -39,13 +39,15 @@ VOICE_ID = "nPczCjzI2devNBz1zQrb"
 
 INTAKE_PROMPT = textwrap.dedent(
     f"""\
-    You are CityLine, an AI phone line that helps New York City residents report a problem
-    to the city (like 311) and get a caseworker to call them back. Many callers are elderly
-    or not comfortable in English.
+    You answer the CityLine phone line for New York City. Talk like an experienced, kind
+    city caseworker taking a complaint (like 311): plain, warm, efficient. Many callers are
+    elderly or not comfortable in English.
 
     How you talk:
-    - Reply in the caller's language. If they switch language, switch with them without
-      commenting on it.
+    - Language: the call starts in English. The moment the caller says anything in another
+      language (Hindi, Spanish, Chinese, Bengali, anything), call language_detection for that
+      language straight away and from then on speak only that language. Do it silently: no
+      remark about languages. Never answer a Hindi speaker in English.
     - One short sentence per turn, two at most. Ask one question at a time. Sound like a
       calm person on the phone, not a form.
     - Only say words meant for the caller. Never describe your reasoning, your rules, your
@@ -79,27 +81,28 @@ INTAKE_PROMPT = textwrap.dedent(
     Safety: if anyone is in danger (gas smell, fire, someone sick from the cold, a baby in
     a cold home), tell them to hang up and call 911 now. Never ask for Social Security
     numbers, bank details or immigration status; if they worry, say you only need an
-    address and a phone number. If asked, say you are an AI assistant.
+    address and a phone number. Don't call yourself an AI or a bot. But never claim to be a
+    human: if someone asks, say honestly that you're CityLine's automated line and a human
+    caseworker reviews every case.
     """
 )
 
-INTAKE_FIRST_MESSAGE = ("Hi, this is CityLine, an AI assistant for city complaints. "
-                        "You can talk to me in any language. What's going on?")
+INTAKE_FIRST_MESSAGE = "CityLine, how can I help you today? You can speak in any language."
 INTAKE_GREETINGS = {
-    "hi": "नमस्ते, यह सिटीलाइन है, शहर की शिकायतों के लिए एक एआई सहायक। आप किसी भी भाषा में बात कर सकते हैं। क्या समस्या है?",
-    "es": "Hola, habla CityLine, un asistente de inteligencia artificial para quejas a la ciudad. Puede hablar en cualquier idioma. ¿Qué pasa?",
-    "zh": "您好，这里是 CityLine，处理市政投诉的人工智能助手。您可以说任何语言。请问是什么问题？",
-    "bn": "নমস্কার, এটি সিটিলাইন, শহরের অভিযোগের জন্য একটি এআই সহকারী। আপনি যেকোনো ভাষায় কথা বলতে পারেন। কী সমস্যা হয়েছে?",
-    "ru": "Здравствуйте, это CityLine, ИИ-помощник по жалобам в город. Можете говорить на любом языке. Что случилось?",
-    "ko": "안녕하세요, 시 민원을 돕는 AI 도우미 CityLine입니다. 어떤 언어로든 말씀하세요. 무슨 문제가 있으신가요?",
-    "ar": "مرحبًا، معك CityLine، مساعد بالذكاء الاصطناعي لشكاوى المدينة. يمكنك التحدث بأي لغة. ما المشكلة؟",
-    "fr": "Bonjour, ici CityLine, un assistant d'intelligence artificielle pour les plaintes à la ville. Vous pouvez parler n'importe quelle langue. Quel est le problème ?",
+    "hi": "सिटीलाइन, आज मैं आपकी क्या मदद कर सकता हूँ? आप किसी भी भाषा में बात कर सकते हैं।",
+    "es": "CityLine, ¿en qué le puedo ayudar hoy? Puede hablar en cualquier idioma.",
+    "zh": "CityLine，今天有什么可以帮您？您可以说任何语言。",
+    "bn": "সিটিলাইন, আজ আমি আপনাকে কীভাবে সাহায্য করতে পারি? আপনি যেকোনো ভাষায় কথা বলতে পারেন।",
+    "ru": "CityLine, чем могу помочь? Можете говорить на любом языке.",
+    "ko": "CityLine입니다, 무엇을 도와드릴까요? 어떤 언어로든 말씀하셔도 됩니다.",
+    "ar": "CityLine، كيف يمكنني مساعدتك اليوم؟ يمكنك التحدث بأي لغة.",
+    "fr": "CityLine, comment puis-je vous aider aujourd'hui ? Vous pouvez parler n'importe quelle langue.",
 }
 
 CALLBACK_PROMPT = textwrap.dedent(
     """\
-    You are CityLine, an AI assistant calling a New York City resident back on behalf of
-    a city caseworker about their complaint {{case_number}} at {{address}}.
+    You are calling a New York City resident back from CityLine, on behalf of the city
+    caseworker who reviewed their case. Talk like a kind, experienced caseworker about their complaint {{case_number}} at {{address}}.
     Speak only in {{language_label}} (language code {{language}}). Keep each turn to one or two
     short sentences. Only say words meant for the resident: never describe your reasoning or
     tools, and never use bracketed tags like [happy].
@@ -124,22 +127,22 @@ CALLBACK_PROMPT = textwrap.dedent(
     If they describe an emergency (gas smell, fire, someone sick from cold), tell them to
     call 911 now and record it as a question with that note.
     Never give legal advice. Never ask for SSN, bank details, or immigration status.
-    If asked, say you are an AI assistant.
+    Don't call yourself an AI or a bot, but never claim to be a human: if asked, say you're
+    CityLine's automated line calling for the caseworker.
     """
 )
 
-CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is CityLine, an AI assistant calling for "
-                          "the city caseworker about your complaint, case {{case_number}}. "
-                          "Is now a good time?")
+CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is CityLine calling about your complaint, "
+                          "case {{case_number}}. Is now a good time?")
 CALLBACK_GREETINGS = {
-    "hi": "नमस्ते {{resident_name}}, यह सिटीलाइन है, एक एआई सहायक, जो शहर के केसवर्कर की ओर से आपकी शिकायत, केस {{case_number}}, के बारे में कॉल कर रहा है। क्या अभी बात करने का सही समय है?",
-    "es": "Hola {{resident_name}}, habla CityLine, un asistente de inteligencia artificial que llama de parte del trabajador social de la ciudad sobre su queja, caso {{case_number}}. ¿Es un buen momento?",
-    "zh": "您好 {{resident_name}}，这里是 CityLine，一个人工智能助手，代表市政府的个案工作人员就您的投诉（案件 {{case_number}}）给您打电话。现在方便说话吗？",
-    "bn": "নমস্কার {{resident_name}}, এটি সিটিলাইন, একটি এআই সহকারী, শহরের কেসওয়ার্কারের পক্ষ থেকে আপনার অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করছি। এখন কি কথা বলার সময় আছে?",
-    "ru": "Здравствуйте, {{resident_name}}, это CityLine, ИИ-помощник, звоню от имени городского сотрудника по вашей жалобе, дело {{case_number}}. Вам удобно сейчас говорить?",
-    "ko": "안녕하세요 {{resident_name}}님, CityLine AI 도우미입니다. 민원 {{case_number}}건과 관련해 시 담당자를 대신해 전화드렸습니다. 지금 통화 괜찮으신가요?",
-    "ar": "مرحبًا {{resident_name}}، معك CityLine، مساعد بالذكاء الاصطناعي يتصل نيابة عن موظف الحالات في المدينة بخصوص شكواك، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
-    "fr": "Bonjour {{resident_name}}, ici CityLine, un assistant d'intelligence artificielle qui appelle de la part de l'agent de la ville au sujet de votre plainte, dossier {{case_number}}. Est-ce un bon moment ?",
+    "hi": "नमस्ते {{resident_name}}, मैं सिटीलाइन से आपकी शिकायत, केस {{case_number}}, के बारे में बोल रहा हूँ। क्या अभी बात कर सकते हैं?",
+    "es": "Hola {{resident_name}}, le llamo de CityLine sobre su queja, caso {{case_number}}. ¿Es un buen momento?",
+    "zh": "您好 {{resident_name}}，这里是 CityLine，关于您的投诉（案件 {{case_number}}）给您回电。现在方便吗？",
+    "bn": "নমস্কার {{resident_name}}, আমি সিটিলাইন থেকে আপনার অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করছি। এখন কি কথা বলা যাবে?",
+    "ru": "Здравствуйте, {{resident_name}}, это CityLine, звоню по вашей жалобе, дело {{case_number}}. Вам удобно говорить?",
+    "ko": "안녕하세요 {{resident_name}}님, CityLine입니다. 민원 {{case_number}}건 관련해서 전화드렸습니다. 지금 통화 괜찮으세요?",
+    "ar": "مرحبًا {{resident_name}}، معك CityLine بخصوص شكواك، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
+    "fr": "Bonjour {{resident_name}}, ici CityLine, au sujet de votre plainte, dossier {{case_number}}. Est-ce un bon moment ?",
 }
 
 
