@@ -1,4 +1,4 @@
-"""Create or update the two Heat Check ElevenLabs agents and their server tools from this file
+"""Create or update the two CityLine ElevenLabs agents and their server tools from this file
 (prompts and tools per AGENTS.md on docs/final-context, routes per CONTRACT.md in app/hc.py).
 
 The agents live in ElevenLabs, but their prompts and tool schemas live here so they are
@@ -39,7 +39,7 @@ VOICE_ID = "nPczCjzI2devNBz1zQrb"
 
 INTAKE_PROMPT = textwrap.dedent(
     f"""\
-    You are Heat Check, an AI phone line that helps New York City residents report a problem
+    You are CityLine, an AI phone line that helps New York City residents report a problem
     to the city (like 311) and get a caseworker to call them back. Many callers are elderly
     or not comfortable in English.
 
@@ -83,22 +83,22 @@ INTAKE_PROMPT = textwrap.dedent(
     """
 )
 
-INTAKE_FIRST_MESSAGE = ("Hi, this is Heat Check, an AI assistant for city complaints. "
+INTAKE_FIRST_MESSAGE = ("Hi, this is CityLine, an AI assistant for city complaints. "
                         "You can talk to me in any language. What's going on?")
 INTAKE_GREETINGS = {
-    "hi": "नमस्ते, यह हीट चेक है, शहर की शिकायतों के लिए एक एआई सहायक। आप किसी भी भाषा में बात कर सकते हैं। क्या समस्या है?",
-    "es": "Hola, habla Heat Check, un asistente de inteligencia artificial para quejas a la ciudad. Puede hablar en cualquier idioma. ¿Qué pasa?",
-    "zh": "您好，这里是 Heat Check，处理市政投诉的人工智能助手。您可以说任何语言。请问是什么问题？",
-    "bn": "নমস্কার, এটি হিট চেক, শহরের অভিযোগের জন্য একটি এআই সহকারী। আপনি যেকোনো ভাষায় কথা বলতে পারেন। কী সমস্যা হয়েছে?",
-    "ru": "Здравствуйте, это Heat Check, ИИ-помощник по жалобам в город. Можете говорить на любом языке. Что случилось?",
-    "ko": "안녕하세요, 시 민원을 돕는 AI 도우미 Heat Check입니다. 어떤 언어로든 말씀하세요. 무슨 문제가 있으신가요?",
-    "ar": "مرحبًا، معك Heat Check، مساعد بالذكاء الاصطناعي لشكاوى المدينة. يمكنك التحدث بأي لغة. ما المشكلة؟",
-    "fr": "Bonjour, ici Heat Check, un assistant d'intelligence artificielle pour les plaintes à la ville. Vous pouvez parler n'importe quelle langue. Quel est le problème ?",
+    "hi": "नमस्ते, यह सिटीलाइन है, शहर की शिकायतों के लिए एक एआई सहायक। आप किसी भी भाषा में बात कर सकते हैं। क्या समस्या है?",
+    "es": "Hola, habla CityLine, un asistente de inteligencia artificial para quejas a la ciudad. Puede hablar en cualquier idioma. ¿Qué pasa?",
+    "zh": "您好，这里是 CityLine，处理市政投诉的人工智能助手。您可以说任何语言。请问是什么问题？",
+    "bn": "নমস্কার, এটি সিটিলাইন, শহরের অভিযোগের জন্য একটি এআই সহকারী। আপনি যেকোনো ভাষায় কথা বলতে পারেন। কী সমস্যা হয়েছে?",
+    "ru": "Здравствуйте, это CityLine, ИИ-помощник по жалобам в город. Можете говорить на любом языке. Что случилось?",
+    "ko": "안녕하세요, 시 민원을 돕는 AI 도우미 CityLine입니다. 어떤 언어로든 말씀하세요. 무슨 문제가 있으신가요?",
+    "ar": "مرحبًا، معك CityLine، مساعد بالذكاء الاصطناعي لشكاوى المدينة. يمكنك التحدث بأي لغة. ما المشكلة؟",
+    "fr": "Bonjour, ici CityLine, un assistant d'intelligence artificielle pour les plaintes à la ville. Vous pouvez parler n'importe quelle langue. Quel est le problème ?",
 }
 
 CALLBACK_PROMPT = textwrap.dedent(
     """\
-    You are Heat Check, an AI assistant calling a New York City resident back on behalf of
+    You are CityLine, an AI assistant calling a New York City resident back on behalf of
     a city caseworker about their complaint {{case_number}} at {{address}}.
     Speak only in {{language_label}} (language code {{language}}). Keep each turn to one or two
     short sentences. Only say words meant for the resident: never describe your reasoning or
@@ -128,18 +128,18 @@ CALLBACK_PROMPT = textwrap.dedent(
     """
 )
 
-CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is Heat Check, an AI assistant calling for "
+CALLBACK_FIRST_MESSAGE = ("Hello {{resident_name}}, this is CityLine, an AI assistant calling for "
                           "the city caseworker about your complaint, case {{case_number}}. "
                           "Is now a good time?")
 CALLBACK_GREETINGS = {
-    "hi": "नमस्ते {{resident_name}}, यह हीट चेक है, एक एआई सहायक, जो शहर के केसवर्कर की ओर से आपकी शिकायत, केस {{case_number}}, के बारे में कॉल कर रहा है। क्या अभी बात करने का सही समय है?",
-    "es": "Hola {{resident_name}}, habla Heat Check, un asistente de inteligencia artificial que llama de parte del trabajador social de la ciudad sobre su queja, caso {{case_number}}. ¿Es un buen momento?",
-    "zh": "您好 {{resident_name}}，这里是 Heat Check，一个人工智能助手，代表市政府的个案工作人员就您的投诉（案件 {{case_number}}）给您打电话。现在方便说话吗？",
-    "bn": "নমস্কার {{resident_name}}, এটি হিট চেক, একটি এআই সহকারী, শহরের কেসওয়ার্কারের পক্ষ থেকে আপনার অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করছি। এখন কি কথা বলার সময় আছে?",
-    "ru": "Здравствуйте, {{resident_name}}, это Heat Check, ИИ-помощник, звоню от имени городского сотрудника по вашей жалобе, дело {{case_number}}. Вам удобно сейчас говорить?",
-    "ko": "안녕하세요 {{resident_name}}님, Heat Check AI 도우미입니다. 민원 {{case_number}}건과 관련해 시 담당자를 대신해 전화드렸습니다. 지금 통화 괜찮으신가요?",
-    "ar": "مرحبًا {{resident_name}}، معك Heat Check، مساعد بالذكاء الاصطناعي يتصل نيابة عن موظف الحالات في المدينة بخصوص شكواك، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
-    "fr": "Bonjour {{resident_name}}, ici Heat Check, un assistant d'intelligence artificielle qui appelle de la part de l'agent de la ville au sujet de votre plainte, dossier {{case_number}}. Est-ce un bon moment ?",
+    "hi": "नमस्ते {{resident_name}}, यह सिटीलाइन है, एक एआई सहायक, जो शहर के केसवर्कर की ओर से आपकी शिकायत, केस {{case_number}}, के बारे में कॉल कर रहा है। क्या अभी बात करने का सही समय है?",
+    "es": "Hola {{resident_name}}, habla CityLine, un asistente de inteligencia artificial que llama de parte del trabajador social de la ciudad sobre su queja, caso {{case_number}}. ¿Es un buen momento?",
+    "zh": "您好 {{resident_name}}，这里是 CityLine，一个人工智能助手，代表市政府的个案工作人员就您的投诉（案件 {{case_number}}）给您打电话。现在方便说话吗？",
+    "bn": "নমস্কার {{resident_name}}, এটি সিটিলাইন, একটি এআই সহকারী, শহরের কেসওয়ার্কারের পক্ষ থেকে আপনার অভিযোগ, কেস {{case_number}}, নিয়ে ফোন করছি। এখন কি কথা বলার সময় আছে?",
+    "ru": "Здравствуйте, {{resident_name}}, это CityLine, ИИ-помощник, звоню от имени городского сотрудника по вашей жалобе, дело {{case_number}}. Вам удобно сейчас говорить?",
+    "ko": "안녕하세요 {{resident_name}}님, CityLine AI 도우미입니다. 민원 {{case_number}}건과 관련해 시 담당자를 대신해 전화드렸습니다. 지금 통화 괜찮으신가요?",
+    "ar": "مرحبًا {{resident_name}}، معك CityLine، مساعد بالذكاء الاصطناعي يتصل نيابة عن موظف الحالات في المدينة بخصوص شكواك، الحالة {{case_number}}. هل الوقت مناسب الآن؟",
+    "fr": "Bonjour {{resident_name}}, ici CityLine, un assistant d'intelligence artificielle qui appelle de la part de l'agent de la ville au sujet de votre plainte, dossier {{case_number}}. Est-ce un bon moment ?",
 }
 
 
@@ -226,7 +226,7 @@ def system_tool(name: str, **params) -> dict:
 AGENTS = {
     "intake": {
         "env": "ELEVENLABS_INTAKE_AGENT_ID",
-        "name": "Heat Check: intake",
+        "name": "CityLine: intake",
         "prompt": INTAKE_PROMPT,
         "first_message": INTAKE_FIRST_MESSAGE,
         "greetings": INTAKE_GREETINGS,
@@ -239,7 +239,7 @@ AGENTS = {
     },
     "callback": {
         "env": "ELEVENLABS_CALLBACK_AGENT_ID",
-        "name": "Heat Check: callback",
+        "name": "CityLine: callback",
         "prompt": CALLBACK_PROMPT,
         "first_message": CALLBACK_FIRST_MESSAGE,
         "greetings": CALLBACK_GREETINGS,
